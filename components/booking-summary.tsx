@@ -6,10 +6,18 @@ import { Separator } from "@/components/ui/separator"
 import { Receipt, Tag, CalendarDays, Clock } from "lucide-react"
 import type { Room } from "@/components/room-list"
 
+function calculateDurationHours(start: string, end: string): number {
+  if (!start || !end) return 0
+  const [sh, sm] = start.split(":").map(Number)
+  const [eh, em] = end.split(":").map(Number)
+  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
+}
+
 interface BookingSummaryProps {
   room: Room
   selectedDate: Date | undefined
-  selectedSlots: string[]
+  startTime: string
+  endTime: string
   isAssociado: boolean
   onToggleAssociado: () => void
   onConfirm: () => void
@@ -18,12 +26,13 @@ interface BookingSummaryProps {
 export function BookingSummary({
   room,
   selectedDate,
-  selectedSlots,
+  startTime,
+  endTime,
   isAssociado,
   onToggleAssociado,
   onConfirm,
 }: BookingSummaryProps) {
-  const hours = selectedSlots.length
+  const hours = calculateDurationHours(startTime, endTime)
   const baseValue = room.pricePerHour * hours
   const isWeekend =
     selectedDate?.getDay() === 0 || selectedDate?.getDay() === 6
@@ -31,7 +40,7 @@ export function BookingSummary({
   const discount = isAssociado ? (baseValue + weekendSurcharge) * 0.15 : 0
   const total = baseValue + weekendSurcharge - discount
 
-  const canConfirm = selectedDate && selectedSlots.length > 0
+  const canConfirm = selectedDate && startTime && endTime && hours > 0
 
   return (
     <Card className="border-primary/20 bg-card">
@@ -55,8 +64,8 @@ export function BookingSummary({
             </div>
             <div className="flex items-center gap-2 text-sm text-foreground">
               <Clock className="size-4 text-muted-foreground" />
-              {hours > 0
-                ? `${hours} hora${hours > 1 ? "s" : ""} selecionada${hours > 1 ? "s" : ""}`
+              {startTime && endTime
+                ? `${startTime} \u2013 ${endTime} (${formatDuration(hours)})`
                 : "Nenhum hor\u00e1rio selecionado"}
             </div>
 
@@ -131,4 +140,13 @@ export function BookingSummary({
       </CardContent>
     </Card>
   )
+}
+
+function formatDuration(hours: number): string {
+  const totalMinutes = Math.round(hours * 60)
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  if (h === 0) return `${m}min`
+  if (m === 0) return `${h}h`
+  return `${h}h${m}min`
 }

@@ -2,24 +2,25 @@
 
 import { ptBR } from "date-fns/locale"
 import { Calendar } from "@/components/ui/calendar"
-import { Badge } from "@/components/ui/badge"
-import { Clock } from "lucide-react"
+import { Clock, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Room } from "@/components/room-list"
 
-const TIME_SLOTS = [
-  { time: "08:00", label: "08:00 - 09:00", available: true },
-  { time: "09:00", label: "09:00 - 10:00", available: true },
-  { time: "10:00", label: "10:00 - 11:00", available: false },
-  { time: "11:00", label: "11:00 - 12:00", available: true },
-  { time: "13:00", label: "13:00 - 14:00", available: true },
-  { time: "14:00", label: "14:00 - 15:00", available: false },
-  { time: "15:00", label: "15:00 - 16:00", available: true },
-  { time: "16:00", label: "16:00 - 17:00", available: true },
-  { time: "17:00", label: "17:00 - 18:00", available: true },
-]
+// Generate 30-minute interval time options from 07:00 to 22:00
+function generateTimeOptions(): string[] {
+  const times: string[] = []
+  for (let h = 7; h <= 22; h++) {
+    times.push(`${String(h).padStart(2, "0")}:00`)
+    if (h < 22) {
+      times.push(`${String(h).padStart(2, "0")}:30`)
+    }
+  }
+  return times
+}
 
-// Simulated unavailable dates
+const TIME_OPTIONS = generateTimeOptions()
+
+// Simulated unavailable dates (weekends for demo)
 const UNAVAILABLE_DATES = [
   new Date(2026, 2, 1),
   new Date(2026, 2, 7),
@@ -30,29 +31,98 @@ const UNAVAILABLE_DATES = [
   new Date(2026, 2, 22),
 ]
 
+// Simulated occupied time ranges per room per date key ("YYYY-MM-DD")
+export const OCCUPIED_SLOTS: Record<string, Record<string, string[]>> = {
+  "sala-reuniao": {
+    "2026-03-02": ["08:00", "08:30", "09:00", "09:30"],
+    "2026-03-03": ["14:00", "14:30", "15:00", "15:30", "16:00"],
+    "2026-03-04": ["10:00", "10:30", "11:00"],
+  },
+  "auditorio": {
+    "2026-03-02": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30"],
+    "2026-03-03": ["08:00", "08:30", "09:00", "09:30"],
+    "2026-03-05": ["13:00", "13:30", "14:00", "14:30"],
+  },
+  "sala-treinamento": {
+    "2026-03-02": ["13:00", "13:30", "14:00", "14:30", "15:00"],
+    "2026-03-04": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30"],
+  },
+  "coworking": {},
+}
+
+export { UNAVAILABLE_DATES }
+
+function getDateKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+}
+
+export function isSlotOccupied(roomId: string, date: Date, time: string): boolean {
+  const key = getDateKey(date)
+  return OCCUPIED_SLOTS[roomId]?.[key]?.includes(time) ?? false
+}
+
+export function isRangeAvailable(roomId: string, date: Date, start: string, end: string): boolean {
+  const startIdx = TIME_OPTIONS.indexOf(start)
+  const endIdx = TIME_OPTIONS.indexOf(end)
+  if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false
+  for (let i = startIdx; i < endIdx; i++) {
+    if (isSlotOccupied(roomId, date, TIME_OPTIONS[i])) return false
+  }
+  return true
+}
+
+function getEndTimeOptions(startTime: string): string[] {
+  const startIdx = TIME_OPTIONS.indexOf(startTime)
+  if (startIdx === -1) return []
+  return TIME_OPTIONS.slice(startIdx + 1)
+}
+
+function hasConflict(roomId: string, date: Date, start: string, end: string): string[] {
+  const startIdx = TIME_OPTIONS.indexOf(start)
+  const endIdx = TIME_OPTIONS.indexOf(end)
+  if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return []
+  const conflicting: string[] = []
+  for (let i = startIdx; i < endIdx; i++) {
+    if (isSlotOccupied(roomId, date, TIME_OPTIONS[i])) {
+      conflicting.push(TIME_OPTIONS[i])
+    }
+  }
+  return conflicting
+}
+
 interface BookingCalendarProps {
   room: Room
   selectedDate: Date | undefined
   onSelectDate: (date: Date | undefined) => void
-  selectedSlots: string[]
-  onToggleSlot: (slot: string) => void
+  startTime: string
+  endTime: string
+  onStartTimeChange: (time: string) => void
+  onEndTimeChange: (time: string) => void
 }
 
 export function BookingCalendar({
   room,
   selectedDate,
   onSelectDate,
-  selectedSlots,
-  onToggleSlot,
+  startTime,
+  endTime,
+  onStartTimeChange,
+  onEndTimeChange,
 }: BookingCalendarProps) {
+  const endOptions = startTime ? getEndTimeOptions(startTime) : []
+  const conflicts =
+    selectedDate && startTime && endTime
+      ? hasConflict(room.id, selectedDate, startTime, endTime)
+      : []
+
   return (
     <div className="flex flex-col gap-4">
       <div>
         <h3 className="text-sm font-semibold text-foreground">
-          {"Selecione a data"}
+          Selecione a data
         </h3>
         <p className="text-xs text-muted-foreground">
-          {room.name} &mdash; {"Hor\u00e1rios dispon\u00edveis"}
+          {room.name} &mdash; Disponibilidade
         </p>
       </div>
 
@@ -62,20 +132,17 @@ export function BookingCalendar({
           selected={selectedDate}
           onSelect={onSelectDate}
           locale={ptBR}
-          disabled={[
-            { before: new Date() },
-            ...UNAVAILABLE_DATES,
-          ]}
+          disabled={[{ before: new Date() }, ...UNAVAILABLE_DATES]}
           className="mx-auto"
         />
       </div>
 
       {selectedDate && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <Clock className="size-4 text-primary" />
             <h4 className="text-sm font-semibold text-foreground">
-              {"Hor\u00e1rios"}
+              {"Hor\u00e1rio"}
             </h4>
             <span className="text-xs text-muted-foreground">
               {selectedDate.toLocaleDateString("pt-BR", {
@@ -86,56 +153,123 @@ export function BookingCalendar({
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
-            {TIME_SLOTS.map((slot) => {
-              const isSelected = selectedSlots.includes(slot.time)
-              return (
-                <button
-                  key={slot.time}
-                  disabled={!slot.available}
-                  onClick={() => onToggleSlot(slot.time)}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Start Time */}
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="start-time"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {"In\u00edcio"}
+              </label>
+              <div className="relative">
+                <select
+                  id="start-time"
+                  value={startTime}
+                  onChange={(e) => {
+                    onStartTimeChange(e.target.value)
+                    onEndTimeChange("")
+                  }}
                   className={cn(
-                    "flex flex-col items-center justify-center rounded-lg border px-2 py-2 text-xs transition-all duration-150",
-                    slot.available && !isSelected &&
-                      "cursor-pointer border-border bg-card text-foreground hover:border-primary/50 hover:bg-primary/5",
-                    isSelected &&
-                      "border-primary bg-primary/10 text-primary ring-1 ring-primary/30",
-                    !slot.available &&
-                      "cursor-not-allowed border-border/50 bg-muted/50 text-muted-foreground line-through"
+                    "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
+                    "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
+                    !startTime && "text-muted-foreground"
                   )}
                 >
-                  <span className="font-medium">{slot.time}</span>
-                  {isSelected && (
-                    <Badge className="mt-1 h-4 px-1 text-[9px] bg-primary text-primary-foreground">
-                      {"Selecionado"}
-                    </Badge>
+                  <option value="">Selecionar</option>
+                  {TIME_OPTIONS.slice(0, -1).map((time) => {
+                    const occupied = isSlotOccupied(room.id, selectedDate, time)
+                    return (
+                      <option
+                        key={time}
+                        value={time}
+                        disabled={occupied}
+                      >
+                        {time}
+                        {occupied ? " (ocupado)" : ""}
+                      </option>
+                    )
+                  })}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            </div>
+
+            {/* End Time */}
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="end-time"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                {"T\u00e9rmino"}
+              </label>
+              <div className="relative">
+                <select
+                  id="end-time"
+                  value={endTime}
+                  onChange={(e) => onEndTimeChange(e.target.value)}
+                  disabled={!startTime}
+                  className={cn(
+                    "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
+                    "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
+                    !endTime && "text-muted-foreground"
                   )}
-                  {!slot.available && (
-                    <span className="mt-0.5 text-[9px] text-muted-foreground">
-                      {"Ocupado"}
-                    </span>
-                  )}
-                </button>
-              )
-            })}
+                >
+                  <option value="">Selecionar</option>
+                  {endOptions.map((time) => (
+                    <option key={time} value={time}>
+                      {time}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              </div>
+            </div>
           </div>
 
-          <div className="mt-1 flex items-center gap-4 text-[10px] text-muted-foreground">
-            <div className="flex items-center gap-1">
-              <div className="size-2.5 rounded-sm bg-card border" />
-              {"Dispon\u00edvel"}
+          {/* Duration display */}
+          {startTime && endTime && (
+            <div className="rounded-lg border bg-secondary/30 px-3 py-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">
+                  {"Dura\u00e7\u00e3o"}
+                </span>
+                <span className="font-medium text-foreground">
+                  {startTime} &mdash; {endTime}
+                  {" "}
+                  ({getDurationLabel(startTime, endTime)})
+                </span>
+              </div>
             </div>
-            <div className="flex items-center gap-1">
-              <div className="size-2.5 rounded-sm bg-primary/10 border border-primary/30" />
-              {"Selecionado"}
+          )}
+
+          {/* Conflict warning */}
+          {conflicts.length > 0 && (
+            <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+              <p className="font-medium">
+                {"Conflito de hor\u00e1rio detectado"}
+              </p>
+              <p className="mt-0.5 text-xs opacity-80">
+                {"Os hor\u00e1rios "}
+                {conflicts.join(", ")}
+                {" j\u00e1 est\u00e3o ocupados nesta sala."}
+              </p>
             </div>
-            <div className="flex items-center gap-1">
-              <div className="size-2.5 rounded-sm bg-muted/50" />
-              {"Ocupado"}
-            </div>
-          </div>
+          )}
         </div>
       )}
     </div>
   )
+}
+
+function getDurationLabel(start: string, end: string): string {
+  const [sh, sm] = start.split(":").map(Number)
+  const [eh, em] = end.split(":").map(Number)
+  const totalMinutes = (eh * 60 + em) - (sh * 60 + sm)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}min`
+  if (minutes === 0) return `${hours}h`
+  return `${hours}h${minutes}min`
 }

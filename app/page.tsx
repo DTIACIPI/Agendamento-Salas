@@ -3,43 +3,61 @@
 import { useState, useCallback } from "react"
 import { Header } from "@/components/header"
 import { RoomList, ROOMS, type Room } from "@/components/room-list"
-import { BookingCalendar } from "@/components/booking-calendar"
+import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
 import { BookingSummary } from "@/components/booking-summary"
 import { UnavailableState } from "@/components/unavailable-state"
 import { SuccessDialog } from "@/components/success-dialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { CalendarDays } from "lucide-react"
 
+function calculateDurationHours(start: string, end: string): number {
+  if (!start || !end) return 0
+  const [sh, sm] = start.split(":").map(Number)
+  const [eh, em] = end.split(":").map(Number)
+  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
+}
+
 export default function Home() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
-  const [selectedSlots, setSelectedSlots] = useState<string[]>([])
+  const [startTime, setStartTime] = useState("")
+  const [endTime, setEndTime] = useState("")
   const [isAssociado, setIsAssociado] = useState(false)
   const [showSuccess, setShowSuccess] = useState(false)
 
   const handleSelectRoom = useCallback((room: Room) => {
     setSelectedRoom(room)
     setSelectedDate(undefined)
-    setSelectedSlots([])
+    setStartTime("")
+    setEndTime("")
   }, [])
 
-  const handleToggleSlot = useCallback((slot: string) => {
-    setSelectedSlots((prev) =>
-      prev.includes(slot) ? prev.filter((s) => s !== slot) : [...prev, slot]
-    )
+  const handleSelectDate = useCallback((date: Date | undefined) => {
+    setSelectedDate(date)
+    setStartTime("")
+    setEndTime("")
   }, [])
 
   const handleSelectOther = useCallback(() => {
     setSelectedRoom(null)
     setSelectedDate(undefined)
-    setSelectedSlots([])
+    setStartTime("")
+    setEndTime("")
   }, [])
 
   const handleConfirm = useCallback(() => {
     setShowSuccess(true)
   }, [])
 
-  const hours = selectedSlots.length
+  // Check if the selected range has a conflict
+  const hasConflict =
+    selectedRoom &&
+    selectedDate &&
+    startTime &&
+    endTime &&
+    !isRangeAvailable(selectedRoom.id, selectedDate, startTime, endTime)
+
+  const hours = calculateDurationHours(startTime, endTime)
   const baseValue = selectedRoom ? selectedRoom.pricePerHour * hours : 0
   const isWeekend =
     selectedDate?.getDay() === 0 || selectedDate?.getDay() === 6
@@ -80,24 +98,51 @@ export default function Home() {
                       <BookingCalendar
                         room={selectedRoom}
                         selectedDate={selectedDate}
-                        onSelectDate={setSelectedDate}
-                        selectedSlots={selectedSlots}
-                        onToggleSlot={handleToggleSlot}
+                        onSelectDate={handleSelectDate}
+                        startTime={startTime}
+                        endTime={endTime}
+                        onStartTimeChange={setStartTime}
+                        onEndTimeChange={setEndTime}
                       />
                     </CardContent>
                   </Card>
 
-                  <BookingSummary
-                    room={selectedRoom}
-                    selectedDate={selectedDate}
-                    selectedSlots={selectedSlots}
-                    isAssociado={isAssociado}
-                    onToggleAssociado={() => setIsAssociado((v) => !v)}
-                    onConfirm={handleConfirm}
-                  />
+                  {hasConflict ? (
+                    <UnavailableState
+                      currentRoom={selectedRoom}
+                      selectedDate={selectedDate}
+                      startTime={startTime}
+                      endTime={endTime}
+                      onSelectRoom={(room) => {
+                        handleSelectRoom(room)
+                        // Preserve date and times when switching rooms
+                        setSelectedDate(selectedDate)
+                        setStartTime(startTime)
+                        setEndTime(endTime)
+                      }}
+                      onSelectOther={handleSelectOther}
+                    />
+                  ) : (
+                    <BookingSummary
+                      room={selectedRoom}
+                      selectedDate={selectedDate}
+                      startTime={startTime}
+                      endTime={endTime}
+                      isAssociado={isAssociado}
+                      onToggleAssociado={() => setIsAssociado((v) => !v)}
+                      onConfirm={handleConfirm}
+                    />
+                  )}
                 </>
               ) : (
-                <UnavailableState onSelectOther={handleSelectOther} />
+                <UnavailableState
+                  currentRoom={selectedRoom}
+                  selectedDate={selectedDate}
+                  startTime={startTime}
+                  endTime={endTime}
+                  onSelectRoom={handleSelectRoom}
+                  onSelectOther={handleSelectOther}
+                />
               )
             ) : (
               <Card className="flex flex-1 items-center justify-center border-dashed">
@@ -132,7 +177,8 @@ export default function Home() {
           onOpenChange={setShowSuccess}
           roomName={selectedRoom.name}
           date={selectedDate}
-          slots={selectedSlots}
+          startTime={startTime}
+          endTime={endTime}
           total={total}
         />
       )}
