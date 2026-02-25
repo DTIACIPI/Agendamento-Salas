@@ -17,7 +17,8 @@ interface SuccessDialogProps {
   onOpenChange: (open: boolean) => void
   roomName: string
   date: Date | undefined
-  slots: string[]
+  startTime: string
+  endTime: string
   total: number
 }
 
@@ -26,7 +27,8 @@ export function SuccessDialog({
   onOpenChange,
   roomName,
   date,
-  slots,
+  startTime,
+  endTime,
   total,
 }: SuccessDialogProps) {
   return (
@@ -59,9 +61,9 @@ export function SuccessDialog({
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{"Hor\u00e1rios"}</span>
+              <span className="text-muted-foreground">{"Hor\u00e1rio"}</span>
               <span className="font-medium text-foreground">
-                {slots.join(", ")}
+                {startTime} &ndash; {endTime}
               </span>
             </div>
             <Separator className="my-1" />
