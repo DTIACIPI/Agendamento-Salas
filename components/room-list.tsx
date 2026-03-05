@@ -18,6 +18,7 @@ export interface Room {
   description: string
   capacity: number
   image: string
+  images: string[]
   amenities: string[]
   infrastructure: string[]
   minHoursWeekday: number // Segunda a sexta
@@ -34,6 +35,12 @@ export const ROOMS: Room[] = [
     description: "Espaço versátil para reuniões e pequenos eventos. Capacidade: 40 pessoas.",
     capacity: 40,
     image: "/images/SALA 02/Sala 02 (1).JPG",
+    images: [
+      "/images/SALA 02/Sala 02 (1).JPG",
+      "/images/SALA 02/Sala 02 (2).JPG",
+      "/images/SALA 02/Sala 02 (3).JPG",
+      "/images/SALA 02/Sala 02 (4).JPG",
+    ],
     amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
     infrastructure: [
       "Cadeiras e mesas",
@@ -57,6 +64,15 @@ export const ROOMS: Room[] = [
     description: "Espaço amplo com palco e equipamentos audiovisuais. Capacidade: 199 pessoas.",
     capacity: 199,
     image: "/images/AUDITÓRIO/Auditório (1).jpg",
+    images: [
+      "/images/AUDITÓRIO/Auditório (1).jpg",
+      "/images/AUDITÓRIO/Auditório (2).jpg",
+      "/images/AUDITÓRIO/Auditório (3).JPG",
+      "/images/AUDITÓRIO/Auditório (4).jpg",
+      "/images/AUDITÓRIO/Auditório (5).jpg",
+      "/images/AUDITÓRIO/Auditório (7).jpg",
+      "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
+    ],
     amenities: ["Ar-condicionado", "Projetor", "Palco", "Microfone"],
     infrastructure: [
       "Poltronas individuais",
@@ -86,6 +102,21 @@ export const ROOMS: Room[] = [
     description: "Auditório com acesso ao Foyer. Capacidade: 199 pessoas.",
     capacity: 199,
     image: "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
+    images: [
+      "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
+      "/images/AUDITÓRIO/Auditório (1).jpg",
+      "/images/AUDITÓRIO/Auditório (2).jpg",
+      "/images/AUDITÓRIO/Auditório (3).JPG",
+      "/images/AUDITÓRIO/Auditório (4).jpg",
+      "/images/AUDITÓRIO/Auditório (5).jpg",
+      "/images/AUDITÓRIO/Auditório (7).jpg",
+      "/images/FOYER/Foyer (1).JPG",
+      "/images/FOYER/Foyer (2).JPG",
+      "/images/FOYER/Foyer (3).JPG",
+      "/images/FOYER/Foyer (4).JPG",
+      "/images/FOYER/Foyer (5).JPG",
+      "/images/FOYER/Foyer (6).JPG",
+    ],
     amenities: ["Ar-condicionado", "Projetor", "Palco", "Cozinha"],
     infrastructure: [
       "Poltronas individuais",
@@ -120,6 +151,14 @@ export const ROOMS: Room[] = [
     description: "Espaço para recepção com cozinha. Capacidade: 199 pessoas.",
     capacity: 199,
     image: "/images/FOYER/Foyer (1).JPG",
+    images: [
+      "/images/FOYER/Foyer (1).JPG",
+      "/images/FOYER/Foyer (2).JPG",
+      "/images/FOYER/Foyer (3).JPG",
+      "/images/FOYER/Foyer (4).JPG",
+      "/images/FOYER/Foyer (5).JPG",
+      "/images/FOYER/Foyer (6).JPG",
+    ],
     amenities: ["Ar-condicionado", "Cozinha", "Bebedouro"],
     infrastructure: [
       "2 mesas medindo L 1,10 x C 3,00",
@@ -143,6 +182,20 @@ export const ROOMS: Room[] = [
     description: "Sala de eventos menor com equipamentos audiovisuais. Capacidade: 74 pessoas.",
     capacity: 74,
     image: "/images/MINIAUDITÓRIO/Miniauditório (1).jpg",
+    images: [
+      "/images/MINIAUDITÓRIO/Miniauditório (1).jpg",
+      "/images/MINIAUDITÓRIO/Miniauditório (2).jpg",
+      "/images/MINIAUDITÓRIO/Miniauditório (3).jpg",
+      "/images/MINIAUDITÓRIO/Miniauditório (4).jpg",
+      "/images/MINIAUDITÓRIO/Miniauditório (5).jpg",
+      "/images/MINIAUDITÓRIO/Miniauditório (6).jpg",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (1).JPG",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (2).JPG",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (3).JPG",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (4).JPG",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (5).JPG",
+      "/images/MINIAUDITÓRIO/Hall Miniauditório (6).JPG",
+    ],
     amenities: ["Ar-condicionado", "Projetor", "Microfone"],
     infrastructure: [
       "Poltronas individuais",
@@ -169,6 +222,15 @@ export const ROOMS: Room[] = [
     description: "Sala de treinamento compacta. Capacidade: 20 pessoas.",
     capacity: 20,
     image: "/images/REGIONAL/Escritório Regional (1).jpg",
+    images: [
+      "/images/REGIONAL/Escritório Regional (1).jpg",
+      "/images/REGIONAL/Escritório Regional (2).jpg",
+      "/images/REGIONAL/Escritório Regional (3).jpg",
+      "/images/REGIONAL/Escritório Regional (4).jpg",
+      "/images/REGIONAL/Escritório Regional (5).jpg",
+      "/images/REGIONAL/Escritório Regional (6).jpg",
+      "/images/REGIONAL/Escritório Regional (Fachada).jpg",
+    ],
     amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
     infrastructure: [
       "Cadeiras universitárias",

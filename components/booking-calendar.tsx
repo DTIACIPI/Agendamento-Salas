@@ -1,11 +1,14 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
 import {
   Clock,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Users,
   Wifi,
   Monitor,
@@ -27,9 +30,6 @@ function generateTimeOptions(): string[] {
 }
 
 const TIME_OPTIONS = generateTimeOptions()
-
-// Full hours for timeline display (8:00 to 22:00)
-const TIMELINE_HOURS = Array.from({ length: 15 }, (_, i) => i + 8)
 
 // Simulated unavailable dates (weekends for demo)
 const UNAVAILABLE_DATES = [
@@ -103,34 +103,6 @@ function getEndTimeOptions(startTime: string): string[] {
   return TIME_OPTIONS.slice(startIdx + 1)
 }
 
-// Get slot status for timeline: "available", "occupied", "selected"
-function getSlotStatus(
-  roomId: string,
-  date: Date,
-  hour: number,
-  startTime: string,
-  endTime: string
-): "available" | "occupied" | "selected" | "past" {
-  const time = `${String(hour).padStart(2, "0")}:00`
-  const timeHalf = `${String(hour).padStart(2, "0")}:30`
-
-  // Check if occupied
-  const isOcc =
-    isSlotOccupied(roomId, date, time) ||
-    isSlotOccupied(roomId, date, timeHalf)
-
-  if (isOcc) return "occupied"
-
-  // Check if within selected range
-  if (startTime && endTime) {
-    const [sh] = startTime.split(":").map(Number)
-    const [eh] = endTime.split(":").map(Number)
-    if (hour >= sh && hour < eh) return "selected"
-  }
-
-  return "available"
-}
-
 interface BookingCalendarProps {
   room: Room
   selectedDate: Date | undefined
@@ -166,6 +138,13 @@ export function BookingCalendar({
   onConfirm,
   priceData,
 }: BookingCalendarProps) {
+  const [carouselIndex, setCarouselIndex] = useState(0)
+
+  // Reset carousel when room changes
+  useEffect(() => {
+    setCarouselIndex(0)
+  }, [room.id])
+
   const today = new Date()
   const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
   const nextMonth = addMonths(currentMonth, 1)
@@ -173,6 +152,8 @@ export function BookingCalendar({
   const endOptions = startTime ? getEndTimeOptions(startTime) : []
 
   const canConfirm = selectedDate && startTime && endTime
+
+  const roomImages = room.images && room.images.length > 0 ? room.images : [room.image]
 
   // Format the selected date for display
   const formattedDate = selectedDate
@@ -193,9 +174,17 @@ export function BookingCalendar({
   const capitalizedMonth =
     currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1)
 
+  const handlePrevImage = () => {
+    setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
+  }
+
+  const handleNextImage = () => {
+    setCarouselIndex((prev) => (prev === roomImages.length - 1 ? 0 : prev + 1))
+  }
+
   return (
     <div className="flex flex-col gap-0 lg:flex-row lg:gap-6">
-      {/* Left side: Calendars + Timeline */}
+      {/* Left side: Calendars */}
       <div className="flex-1 flex flex-col gap-4">
         {/* Header */}
         <div>
@@ -244,7 +233,7 @@ export function BookingCalendar({
           </div>
           <div className="flex items-center gap-1.5">
             <Users className="size-4" />
-            <span>Capacitas: {room.capacity}</span>
+            <span>Capacidade: {room.capacity}</span>
           </div>
           {room.amenities.includes("Projetor") && (
             <Wifi className="size-4" />
@@ -253,93 +242,63 @@ export function BookingCalendar({
             <Monitor className="size-4" />
           )}
         </div>
-
-        {/* Timeline Bar */}
-        {selectedDate && (
-          <div className="flex flex-col gap-1 overflow-x-auto">
-            {/* Top hour labels */}
-            <div className="flex">
-              {TIMELINE_HOURS.map((hour) => (
-                <div
-                  key={`top-${hour}`}
-                  className={cn(
-                    "min-w-[48px] flex-1 text-center text-xs",
-                    startTime &&
-                      endTime &&
-                      hour >= parseInt(startTime) &&
-                      hour < parseInt(endTime)
-                      ? "font-semibold text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {`${hour}:00`}
-                </div>
-              ))}
-            </div>
-
-            {/* Colored blocks */}
-            <div className="flex gap-0.5">
-              {TIMELINE_HOURS.map((hour) => {
-                const status = getSlotStatus(
-                  room.id,
-                  selectedDate,
-                  hour,
-                  startTime,
-                  endTime
-                )
-                return (
-                  <div
-                    key={`block-${hour}`}
-                    className={cn(
-                      "min-w-[48px] flex-1 h-8 rounded-sm border",
-                      status === "available" &&
-                        "bg-emerald-500/70 border-emerald-600/50",
-                      status === "occupied" &&
-                        "bg-muted border-muted-foreground/20",
-                      status === "selected" &&
-                        "bg-primary border-primary/80",
-                      status === "past" &&
-                        "bg-muted/50 border-muted-foreground/10"
-                    )}
-                  />
-                )
-              })}
-            </div>
-
-            {/* Bottom hour labels */}
-            <div className="flex">
-              {TIMELINE_HOURS.map((hour) => (
-                <div
-                  key={`bot-${hour}`}
-                  className={cn(
-                    "min-w-[48px] flex-1 text-center text-xs",
-                    startTime &&
-                      endTime &&
-                      hour >= parseInt(startTime) &&
-                      hour < parseInt(endTime)
-                      ? "font-semibold text-primary"
-                      : "text-muted-foreground"
-                  )}
-                >
-                  {`${hour}:00`}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Right side: Room Image + Booking Summary */}
+      {/* Right side: Image Carousel + Booking Summary */}
       <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4 mt-4 lg:mt-0">
-        {/* Room Image */}
-        <div className="relative aspect-video w-full overflow-hidden rounded-lg">
+        {/* Image Carousel */}
+        <div className="relative aspect-video w-full overflow-hidden rounded-lg group">
           <Image
-            src={room.image}
-            alt={room.name}
+            src={roomImages[carouselIndex]}
+            alt={`${room.name} - Foto ${carouselIndex + 1}`}
             fill
-            className="object-cover"
+            className="object-cover transition-opacity duration-300"
             sizes="320px"
           />
+
+          {roomImages.length > 1 && (
+            <>
+              {/* Previous button */}
+              <button
+                onClick={handlePrevImage}
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                aria-label="Imagem anterior"
+              >
+                <ChevronLeft className="size-5" />
+              </button>
+
+              {/* Next button */}
+              <button
+                onClick={handleNextImage}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                aria-label="Pr\u00f3xima imagem"
+              >
+                <ChevronRight className="size-5" />
+              </button>
+
+              {/* Dot indicators */}
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {roomImages.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCarouselIndex(idx)}
+                    className={cn(
+                      "size-2 rounded-full transition-all",
+                      idx === carouselIndex
+                        ? "bg-background w-4"
+                        : "bg-background/60 hover:bg-background/80"
+                    )}
+                    aria-label={`Ir para imagem ${idx + 1}`}
+                  />
+                ))}
+              </div>
+
+              {/* Counter */}
+              <div className="absolute top-2 right-2 rounded-full bg-background/80 px-2 py-0.5 text-xs font-medium text-foreground">
+                {carouselIndex + 1}/{roomImages.length}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Booking Summary */}
@@ -461,15 +420,4 @@ export function BookingCalendar({
       </div>
     </div>
   )
-}
-
-function getDurationLabel(start: string, end: string): string {
-  const [sh, sm] = start.split(":").map(Number)
-  const [eh, em] = end.split(":").map(Number)
-  const totalMinutes = eh * 60 + em - (sh * 60 + sm)
-  const hours = Math.floor(totalMinutes / 60)
-  const minutes = totalMinutes % 60
-  if (hours === 0) return `${minutes}min`
-  if (minutes === 0) return `${hours}h`
-  return `${hours}h${minutes}min`
 }
