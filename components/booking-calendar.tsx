@@ -1,8 +1,9 @@
 "use client"
 
+import { useState, useMemo } from "react"
 import { ptBR } from "date-fns/locale"
 import { Calendar } from "@/components/ui/calendar"
-import { Clock, ChevronDown } from "lucide-react"
+import { Clock, Users, Wifi, Monitor } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { Room } from "@/components/room-list"
 
@@ -19,6 +20,9 @@ function generateTimeOptions(): string[] {
 }
 
 const TIME_OPTIONS = generateTimeOptions()
+
+// Hourly slots for timeline (8:00 - 22:00)
+const TIMELINE_HOURS = Array.from({ length: 15 }, (_, i) => i + 8)
 
 // Simulated unavailable dates (weekends for demo)
 const UNAVAILABLE_DATES = [
@@ -92,6 +96,42 @@ function hasConflict(roomId: string, date: Date, start: string, end: string): st
   return conflicting
 }
 
+type SlotStatus = "available" | "occupied" | "selected" | "past"
+
+function getHourSlotStatus(
+  roomId: string,
+  date: Date,
+  hour: number,
+  startTime: string,
+  endTime: string
+): SlotStatus {
+  const time1 = `${String(hour).padStart(2, "0")}:00`
+  const time2 = `${String(hour).padStart(2, "0")}:30`
+
+  // Check if this hour is within the selected range
+  if (startTime && endTime) {
+    const [sh] = startTime.split(":").map(Number)
+    const [eh] = endTime.split(":").map(Number)
+    const startMinutes = parseInt(startTime.split(":")[0]) * 60 + parseInt(startTime.split(":")[1])
+    const endMinutes = parseInt(endTime.split(":")[0]) * 60 + parseInt(endTime.split(":")[1])
+    const slotStartMinutes = hour * 60
+    const slotEndMinutes = hour * 60 + 59
+
+    if (slotStartMinutes >= startMinutes && slotStartMinutes < endMinutes) {
+      return "selected"
+    }
+  }
+
+  // Check if any 30-min slot in this hour is occupied
+  const key = getDateKey(date)
+  const occupied = OCCUPIED_SLOTS[roomId]?.[key] || []
+  if (occupied.includes(time1) || occupied.includes(time2)) {
+    return "occupied"
+  }
+
+  return "available"
+}
+
 interface BookingCalendarProps {
   room: Room
   selectedDate: Date | undefined
@@ -117,131 +157,168 @@ export function BookingCalendar({
       ? hasConflict(room.id, selectedDate, startTime, endTime)
       : []
 
+  // Get the current month name in Portuguese
+  const currentMonthLabel = selectedDate
+    ? selectedDate.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+    : new Date().toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+
+  // Timeline slot statuses
+  const timelineSlots = useMemo(() => {
+    if (!selectedDate) return []
+    return TIMELINE_HOURS.map((hour) => ({
+      hour,
+      label: `${String(hour).padStart(2, "0")}:00`,
+      status: getHourSlotStatus(room.id, selectedDate, hour, startTime, endTime),
+    }))
+  }, [room.id, selectedDate, startTime, endTime])
+
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-6">
+      {/* Header */}
       <div>
-        <h3 className="text-sm font-semibold text-foreground">
-          Selecione a data
+        <h3 className="text-xl font-bold italic text-foreground">
+          {"Sele\u00e7\u00e3o de Sala e Data"}
         </h3>
-        <p className="text-xs text-muted-foreground">
-          {room.name} &mdash; Disponibilidade
+        <p className="text-sm text-muted-foreground">
+          {"Local: "}{room.name}{" \u2013 Disponibilidade para "}{currentMonthLabel.charAt(0).toUpperCase() + currentMonthLabel.slice(1)}
         </p>
       </div>
 
-      <div className="flex justify-center rounded-lg border bg-card p-2">
+      {/* Two side-by-side calendars */}
+      <div className="rounded-xl border bg-card p-4">
         <Calendar
           mode="single"
           selected={selectedDate}
           onSelect={onSelectDate}
           locale={ptBR}
+          numberOfMonths={2}
           disabled={[{ before: new Date() }, ...UNAVAILABLE_DATES]}
           className="mx-auto"
         />
       </div>
 
+      {/* Room info bar + Timeline */}
       {selectedDate && (
         <div className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Clock className="size-4 text-primary" />
-            <h4 className="text-sm font-semibold text-foreground">
-              {"Hor\u00e1rio"}
-            </h4>
-            <span className="text-xs text-muted-foreground">
-              {selectedDate.toLocaleDateString("pt-BR", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-              })}
-            </span>
+          {/* Info bar with icons */}
+          <div className="flex items-center gap-4 text-sm text-muted-foreground">
+            <div className="flex items-center gap-1.5">
+              <Clock className="size-4" />
+              <span className="font-medium text-foreground">{"Hor\u00e1rio"}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Users className="size-4" />
+              <span>{"Capacidade: "}{room.capacity}</span>
+            </div>
+            {room.amenities.includes("Wi-Fi") || room.amenities.includes("Ar-condicionado") ? (
+              <div className="flex items-center gap-1.5">
+                <Wifi className="size-4" />
+              </div>
+            ) : null}
+            {room.amenities.includes("Projetor") ? (
+              <div className="flex items-center gap-1.5">
+                <Monitor className="size-4" />
+              </div>
+            ) : null}
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* Start Time */}
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="start-time"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {"In\u00edcio"}
-              </label>
-              <div className="relative">
-                <select
-                  id="start-time"
-                  value={startTime}
-                  onChange={(e) => {
-                    onStartTimeChange(e.target.value)
-                    onEndTimeChange("")
+          {/* Timeline visualization */}
+          <div className="rounded-xl border bg-card p-4">
+            {/* Top hour labels */}
+            <div className="flex items-end gap-0">
+              {timelineSlots.map((slot) => (
+                <div
+                  key={`label-top-${slot.hour}`}
+                  className="flex-1 text-center"
+                >
+                  <span
+                    className={cn(
+                      "text-[10px] leading-none lg:text-xs",
+                      slot.status === "selected"
+                        ? "font-semibold text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {slot.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Timeline bars */}
+            <div className="mt-2 flex gap-0.5">
+              {timelineSlots.map((slot) => (
+                <button
+                  key={`bar-${slot.hour}`}
+                  type="button"
+                  onClick={() => {
+                    if (slot.status !== "occupied") {
+                      const timeStr = `${String(slot.hour).padStart(2, "0")}:00`
+                      if (!startTime) {
+                        onStartTimeChange(timeStr)
+                      } else if (!endTime) {
+                        const nextHour = `${String(slot.hour + 1).padStart(2, "0")}:00`
+                        if (timeStr > startTime) {
+                          onEndTimeChange(nextHour <= "22:00" ? nextHour : "22:00")
+                        } else {
+                          onStartTimeChange(timeStr)
+                        }
+                      } else {
+                        // Reset and start new selection
+                        onStartTimeChange(timeStr)
+                        onEndTimeChange("")
+                      }
+                    }
                   }}
                   className={cn(
-                    "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
-                    !startTime && "text-muted-foreground"
+                    "flex-1 h-8 rounded-sm transition-colors cursor-pointer",
+                    slot.status === "available" && "bg-emerald-400 hover:bg-emerald-500",
+                    slot.status === "occupied" && "bg-muted-foreground/30 cursor-not-allowed",
+                    slot.status === "selected" && "bg-primary",
+                    slot.status === "past" && "bg-muted"
                   )}
-                >
-                  <option value="">Selecionar</option>
-                  {TIME_OPTIONS.slice(0, -1).map((time) => {
-                    return (
-                      <option
-                        key={time}
-                        value={time}
-                      >
-                        {time}
-                      </option>
-                    )
-                  })}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              </div>
+                  aria-label={`${slot.label} - ${slot.status === "available" ? "disponivel" : slot.status === "occupied" ? "ocupado" : slot.status === "selected" ? "selecionado" : "indisponivel"}`}
+                />
+              ))}
             </div>
 
-            {/* End Time */}
-            <div className="flex flex-col gap-1.5">
-              <label
-                htmlFor="end-time"
-                className="text-xs font-medium text-muted-foreground"
-              >
-                {"T\u00e9rmino"}
-              </label>
-              <div className="relative">
-                <select
-                  id="end-time"
-                  value={endTime}
-                  onChange={(e) => onEndTimeChange(e.target.value)}
-                  disabled={!startTime}
-                  className={cn(
-                    "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
-                    "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
-                    "disabled:cursor-not-allowed disabled:opacity-50",
-                    !endTime && "text-muted-foreground"
-                  )}
+            {/* Bottom hour labels */}
+            <div className="mt-2 flex items-start gap-0">
+              {timelineSlots.map((slot) => (
+                <div
+                  key={`label-bottom-${slot.hour}`}
+                  className="flex-1 text-center"
                 >
-                  <option value="">Selecionar</option>
-                  {endOptions.map((time) => (
-                    <option key={time} value={time}>
-                      {time}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <span
+                    className={cn(
+                      "text-[10px] leading-none lg:text-xs",
+                      slot.status === "selected"
+                        ? "font-semibold text-primary"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {slot.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {/* Legend */}
+            <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5">
+                <div className="size-3 rounded-sm bg-emerald-400" />
+                <span>{"Dispon\u00edvel"}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="size-3 rounded-sm bg-primary" />
+                <span>Selecionado</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <div className="size-3 rounded-sm bg-muted-foreground/30" />
+                <span>Ocupado</span>
               </div>
             </div>
           </div>
-
-          {/* Duration display */}
-          {startTime && endTime && (
-            <div className="rounded-lg border bg-secondary/30 px-3 py-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  {"Dura\u00e7\u00e3o"}
-                </span>
-                <span className="font-medium text-foreground">
-                  {startTime} &mdash; {endTime}
-                  {" "}
-                  ({getDurationLabel(startTime, endTime)})
-                </span>
-              </div>
-            </div>
-          )}
 
           {/* Conflict warning */}
           {conflicts.length > 0 && (
