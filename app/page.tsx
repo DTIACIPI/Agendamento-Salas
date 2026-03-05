@@ -4,7 +4,7 @@ import { useState, useCallback } from "react"
 import { Header } from "@/components/header"
 import { RoomList, ROOMS, type Room } from "@/components/room-list"
 import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
-import { BookingSummary } from "@/components/booking-summary"
+// BookingSummary is now integrated into BookingCalendar
 import { UnavailableState } from "@/components/unavailable-state"
 import { SuccessDialog } from "@/components/success-dialog"
 import { Card, CardContent } from "@/components/ui/card"
@@ -105,11 +105,25 @@ export default function Home() {
                         endTime={endTime}
                         onStartTimeChange={setStartTime}
                         onEndTimeChange={setEndTime}
+                        isAssociado={isAssociado}
+                        onToggleAssociado={() => {
+                          setIsAssociado((v) => !v)
+                          if (isAssociado) {
+                            setCnpj("")
+                            setAssociadoMonths(0)
+                          }
+                        }}
+                        associadoMonths={associadoMonths}
+                        onAssociadoMonthsChange={setAssociadoMonths}
+                        cnpj={cnpj}
+                        onCnpjChange={setCnpj}
+                        onConfirm={handleConfirm}
+                        priceData={priceData}
                       />
                     </CardContent>
                   </Card>
 
-                  {hasConflict ? (
+                  {hasConflict && (
                     <UnavailableState
                       currentRoom={selectedRoom}
                       selectedDate={selectedDate}
@@ -117,32 +131,11 @@ export default function Home() {
                       endTime={endTime}
                       onSelectRoom={(room) => {
                         handleSelectRoom(room)
-                        // Preserve date and times when switching rooms
                         setSelectedDate(selectedDate)
                         setStartTime(startTime)
                         setEndTime(endTime)
                       }}
                       onSelectOther={handleSelectOther}
-                    />
-                  ) : (
-                    <BookingSummary
-                      room={selectedRoom}
-                      selectedDate={selectedDate}
-                      startTime={startTime}
-                      endTime={endTime}
-                      isAssociado={isAssociado}
-                      onToggleAssociado={() => {
-                        setIsAssociado((v) => !v)
-                        if (isAssociado) {
-                          setCnpj("")
-                          setAssociadoMonths(0)
-                        }
-                      }}
-                      associadoMonths={associadoMonths}
-                      onAssociadoMonthsChange={setAssociadoMonths}
-                      cnpj={cnpj}
-                      onCnpjChange={setCnpj}
-                      onConfirm={handleConfirm}
                     />
                   )}
                 </>
