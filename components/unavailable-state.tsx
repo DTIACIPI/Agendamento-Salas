@@ -9,7 +9,7 @@ import { isRangeAvailable } from "@/components/booking-calendar"
 
 interface UnavailableStateProps {
   currentRoom: Room
-  selectedDate: Date | undefined
+  selectedRange: { from?: Date; to?: Date }
   startTime: string
   endTime: string
   onSelectRoom: (room: Room) => void
@@ -18,22 +18,22 @@ interface UnavailableStateProps {
 
 function getAvailableAlternatives(
   currentRoomId: string,
-  date: Date | undefined,
+  range: { from?: Date; to?: Date },
   startTime: string,
   endTime: string
 ): Room[] {
-  if (!date || !startTime || !endTime) return []
+  if (!range.from || !range.to || !startTime || !endTime) return []
   return ROOMS.filter(
     (room) =>
       room.id !== currentRoomId &&
       room.available &&
-      isRangeAvailable(room.id, date, startTime, endTime)
+      isRangeAvailable(room.id, range.from!, range.to!, startTime, endTime)
   )
 }
 
 export function UnavailableState({
   currentRoom,
-  selectedDate,
+  selectedRange,
   startTime,
   endTime,
   onSelectRoom,
@@ -41,12 +41,12 @@ export function UnavailableState({
 }: UnavailableStateProps) {
   const alternatives = getAvailableAlternatives(
     currentRoom.id,
-    selectedDate,
+    selectedRange,
     startTime,
     endTime
   )
 
-  const hasTimeSelected = !!selectedDate && !!startTime && !!endTime
+  const hasTimeSelected = !!selectedRange.from && !!selectedRange.to && !!startTime && !!endTime
 
   return (
     <div className="flex flex-col gap-4">
@@ -98,11 +98,23 @@ export function UnavailableState({
                 {"Espa\u00e7os dispon\u00edveis nesse hor\u00e1rio"}
               </h4>
               <p className="text-xs text-muted-foreground">
-                {selectedDate!.toLocaleDateString("pt-BR", {
-                  weekday: "long",
-                  day: "numeric",
-                  month: "long",
-                })}{" "}
+                {selectedRange.from && selectedRange.to
+                  ? `${selectedRange.from.toLocaleDateString("pt-BR", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    })} – ${selectedRange.to.toLocaleDateString("pt-BR", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    })}`
+                  : selectedRange.from
+                  ? selectedRange.from.toLocaleDateString("pt-BR", {
+                      weekday: "long",
+                      day: "numeric",
+                      month: "long",
+                    })
+                  : ""}{" "}
                 &middot; {startTime} &ndash; {endTime}
               </p>
             </div>

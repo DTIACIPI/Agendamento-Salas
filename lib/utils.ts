@@ -20,7 +20,7 @@ export function getPriceForTimeSlot(
   endTime: string
 ): number {
   const isSaturday = date.getDay() === 6
-  const periods = isSaturday ? room.pricePeroidsSaturday : room.pricePeriodsWeekday
+  const periods = isSaturday ? room.pricePeriodsSaturday : room.pricePeriodsWeekday
 
   if (periods.length === 0) return 0
 
@@ -68,7 +68,8 @@ export function calculateRoomPrice(
   date: Date | undefined,
   startTime: string,
   endTime: string,
-  associadoMonths: number = 0
+  associadoMonths: number = 0,
+  range?: { from?: Date; to?: Date }
 ): {
   basePrice: number
   discountPercent: number
@@ -86,36 +87,42 @@ export function calculateRoomPrice(
     }
   }
 
-  const [sh, sm] = startTime.split(":").map(Number)
-  const [eh, em] = endTime.split(":").map(Number)
+  // helper for single day
+  function priceForDay(d: Date) {
+    const [sh, sm] = startTime.split(":").map(Number)
+    const [eh, em] = endTime.split(":").map(Number)
 
-  const bookedMinutes = (eh * 60 + em) - (sh * 60 + sm)
-  const bookedHours = bookedMinutes / 60
+    const bookedMinutes = (eh * 60 + em) - (sh * 60 + sm)
+    const bookedHours = bookedMinutes / 60
 
-  // Determine minimum hours based on day of week
-  const isSaturday = date.getDay() === 6
-  const minHours = isSaturday ? room.minHoursSaturday : room.minHoursWeekday
+    const isSaturday = d.getDay() === 6
+    const minHours = isSaturday ? room.minHoursSaturday : room.minHoursWeekday
 
-  // Apply minimum hours if necessary
-  let appliedMinimumHours = 0
-  let finalBookedMinutes = bookedMinutes
-  
-  if (bookedHours < minHours) {
-    appliedMinimumHours = minHours
-    finalBookedMinutes = minHours * 60
+    let finalBookedMinutes = bookedMinutes
+    if (bookedHours < minHours) {
+      finalBookedMinutes = minHours * 60
+    }
+
+    const finalEndMinutes = sh * 60 + sm + finalBookedMinutes
+    const finalEndHour = Math.floor(finalEndMinutes / 60)
+    const finalEndMin = finalEndMinutes % 60
+    const finalEndTime = `${String(finalEndHour).padStart(2, "0")}:
+${String(finalEndMin).padStart(2, "0")}`
+
+    return getPriceForTimeSlot(room, d, startTime, finalEndTime)
   }
 
-  // Calculate end time considering minimum
-  const finalEndMinutes = sh * 60 + sm + finalBookedMinutes
-  const finalEndHour = Math.floor(finalEndMinutes / 60)
-  const finalEndMin = finalEndMinutes % 60
+  let basePrice = 0
+  if (range && range.from && range.to) {
+    const cur = new Date(range.from)
+    while (cur <= range.to) {
+      basePrice += priceForDay(cur)
+      cur.setDate(cur.getDate() + 1)
+    }
+  } else {
+    basePrice = priceForDay(date)
+  }
 
-  const finalEndTime = `${String(finalEndHour).padStart(2, "0")}:${String(finalEndMin).padStart(2, "0")}`
-
-  // Calculate base price for the booked/minimum hours
-  const basePrice = getPriceForTimeSlot(room, date, startTime, finalEndTime)
-
-  // Calculate discount based on associado months
   let discountPercent = 0
   if (associadoMonths > 0) {
     if (associadoMonths <= 12) {
@@ -129,6 +136,8 @@ export function calculateRoomPrice(
 
   const discount = basePrice * (discountPercent / 100)
   const finalPrice = basePrice - discount
+
+  const appliedMinimumHours = 0
 
   return {
     basePrice,

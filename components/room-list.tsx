@@ -24,7 +24,7 @@ export interface Room {
   minHoursWeekday: number // Segunda a sexta
   minHoursSaturday: number // Sábado
   pricePeriodsWeekday: PricePeriod[] // Segunda a sexta
-  pricePeroidsSaturday: PricePeriod[] // Sábado
+  pricePeriodsSaturday: PricePeriod[] // Sábado
   available: boolean
 }
 
@@ -55,7 +55,7 @@ export const ROOMS: Room[] = [
     minHoursWeekday: 4,
     minHoursSaturday: 5,
     pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 120 }],
-    pricePeroidsSaturday: [{ startHour: 8, endHour: 13, price: 192 }],
+    pricePeriodsSaturday: [{ startHour: 8, endHour: 13, price: 192 }],
     available: true,
   },
   {
@@ -93,7 +93,7 @@ export const ROOMS: Room[] = [
     minHoursWeekday: 4,
     minHoursSaturday: 5,
     pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 925 }],
-    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 1480 }],
+    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 1480 }],
     available: true,
   },
   {
@@ -142,7 +142,7 @@ export const ROOMS: Room[] = [
     minHoursWeekday: 4,
     minHoursSaturday: 5,
     pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 1155 }],
-    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 1848 }],
+    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 1848 }],
     available: true,
   },
   {
@@ -173,7 +173,7 @@ export const ROOMS: Room[] = [
     minHoursWeekday: 4,
     minHoursSaturday: 5,
     pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 337.5 }],
-    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 540 }],
+    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 540 }],
     available: true,
   },
   {
@@ -213,7 +213,7 @@ export const ROOMS: Room[] = [
       { startHour: 8, endHour: 18, price: 175 },
       { startHour: 18, endHour: 22, price: 200 },
     ],
-    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 280 }],
+    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 280 }],
     available: true,
   },
   {
@@ -243,7 +243,7 @@ export const ROOMS: Room[] = [
     minHoursWeekday: 4,
     minHoursSaturday: 5,
     pricePeriodsWeekday: [{ startHour: 8, endHour: 18, price: 57.5 }],
-    pricePeroidsSaturday: [], // Sábado não realiza locação
+    pricePeriodsSaturday: [], // Sábado não realiza locação
     available: true,
   },
 ]

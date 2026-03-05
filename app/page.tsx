@@ -4,7 +4,6 @@ import { useState, useCallback } from "react"
 import { Header } from "@/components/header"
 import { RoomList, ROOMS, type Room } from "@/components/room-list"
 import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
-// BookingSummary is now integrated into BookingCalendar
 import { UnavailableState } from "@/components/unavailable-state"
 import { SuccessDialog } from "@/components/success-dialog"
 import { Card, CardContent } from "@/components/ui/card"
@@ -13,7 +12,7 @@ import { calculateRoomPrice } from "@/lib/utils"
 
 export default function Home() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
-  const [selectedDate, setSelectedDate] = useState<Date | undefined>(undefined)
+  const [selectedRange, setSelectedRange] = useState<{ from?: Date; to?: Date }>({})
   const [startTime, setStartTime] = useState("")
   const [endTime, setEndTime] = useState("")
   const [isAssociado, setIsAssociado] = useState(false)
@@ -23,21 +22,21 @@ export default function Home() {
 
   const handleSelectRoom = useCallback((room: Room) => {
     setSelectedRoom(room)
-    setSelectedDate(undefined)
+    setSelectedRange({})
     setStartTime("")
     setEndTime("")
     setCnpj("")
   }, [])
 
-  const handleSelectDate = useCallback((date: Date | undefined) => {
-    setSelectedDate(date)
+  const handleSelectRange = useCallback(({ from, to }: { from?: Date; to?: Date }) => {
+    setSelectedRange({ from, to })
     setStartTime("")
     setEndTime("")
   }, [])
 
   const handleSelectOther = useCallback(() => {
     setSelectedRoom(null)
-    setSelectedDate(undefined)
+    setSelectedRange({})
     setStartTime("")
     setEndTime("")
     setCnpj("")
@@ -47,21 +46,23 @@ export default function Home() {
     setShowSuccess(true)
   }, [])
 
-  // Check if the selected range has a conflict
+  // Check if the selected range has a conflict (iterates each day)
   const hasConflict =
     selectedRoom &&
-    selectedDate &&
+    selectedRange.from &&
+    selectedRange.to &&
     startTime &&
     endTime &&
-    !isRangeAvailable(selectedRoom.id, selectedDate, startTime, endTime)
+    !isRangeAvailable(selectedRoom.id, selectedRange.from, selectedRange.to, startTime, endTime)
 
   const priceData = selectedRoom
     ? calculateRoomPrice(
         selectedRoom,
-        selectedDate,
+        selectedRange.from || selectedRange.to, // pass a date or undefined; util handles range inside if needed
         startTime,
         endTime,
-        isAssociado ? associadoMonths : 0
+        isAssociado ? associadoMonths : 0,
+        selectedRange.from && selectedRange.to ? selectedRange : undefined
       )
     : { basePrice: 0, discountPercent: 0, discount: 0, finalPrice: 0, appliedMinimumHours: 0 }
 
@@ -99,8 +100,8 @@ export default function Home() {
                     <CardContent className="p-4 lg:p-6">
                       <BookingCalendar
                         room={selectedRoom}
-                        selectedDate={selectedDate}
-                        onSelectDate={handleSelectDate}
+                        selectedRange={selectedRange}
+                        onSelectRange={handleSelectRange}
                         startTime={startTime}
                         endTime={endTime}
                         onStartTimeChange={setStartTime}
@@ -126,12 +127,12 @@ export default function Home() {
                   {hasConflict && (
                     <UnavailableState
                       currentRoom={selectedRoom}
-                      selectedDate={selectedDate}
+                      selectedRange={selectedRange}
                       startTime={startTime}
                       endTime={endTime}
                       onSelectRoom={(room) => {
                         handleSelectRoom(room)
-                        setSelectedDate(selectedDate)
+                        setSelectedRange(selectedRange)
                         setStartTime(startTime)
                         setEndTime(endTime)
                       }}
@@ -142,7 +143,7 @@ export default function Home() {
               ) : (
                 <UnavailableState
                   currentRoom={selectedRoom}
-                  selectedDate={selectedDate}
+                  selectedRange={selectedRange}
                   startTime={startTime}
                   endTime={endTime}
                   onSelectRoom={handleSelectRoom}
@@ -181,7 +182,7 @@ export default function Home() {
           open={showSuccess}
           onOpenChange={setShowSuccess}
           roomName={selectedRoom.name}
-          date={selectedDate}
+          dateRange={selectedRange}
           startTime={startTime}
           endTime={endTime}
           total={total}

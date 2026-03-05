@@ -16,11 +16,12 @@ import {
 import Image from "next/image"
 import { cn } from "@/lib/utils"
 import type { Room } from "@/components/room-list"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
-// Generate 30-minute interval time options from 07:00 to 22:00
+// Generate 30-minute interval time options from 08:00 to 22:00
 function generateTimeOptions(): string[] {
   const times: string[] = []
-  for (let h = 7; h <= 22; h++) {
+  for (let h = 8; h <= 22; h++) {
     times.push(`${String(h).padStart(2, "0")}:00`)
     if (h < 22) {
       times.push(`${String(h).padStart(2, "0")}:30`)
@@ -31,15 +32,35 @@ function generateTimeOptions(): string[] {
 
 const TIME_OPTIONS = generateTimeOptions()
 
-// Simulated unavailable dates (weekends for demo)
+// Function to get all Sundays in a given month
+function getSundaysInMonth(year: number, month: number): Date[] {
+  const sundays: Date[] = []
+  const date = new Date(year, month, 1)
+  
+  // Find the first day of the month and check what day of week it is
+  let current = new Date(year, month, 1)
+  
+  // Find the first Sunday of the month
+  const dayOfWeek = current.getDay()
+  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek
+  current.setDate(1 + daysUntilSunday)
+  
+  // Add all Sundays in the month
+  while (current.getMonth() === month) {
+    sundays.push(new Date(current))
+    current.setDate(current.getDate() + 7)
+  }
+  
+  return sundays
+}
+
+// Simulated unavailable dates (only Sundays)
 const UNAVAILABLE_DATES = [
-  new Date(2026, 2, 1),
-  new Date(2026, 2, 7),
-  new Date(2026, 2, 8),
-  new Date(2026, 2, 14),
-  new Date(2026, 2, 15),
-  new Date(2026, 2, 21),
-  new Date(2026, 2, 22),
+  new Date(2026, 2, 1),  // 1º de março - domingo
+  new Date(2026, 2, 8),  // 8 de março - domingo
+  new Date(2026, 2, 15), // 15 de março - domingo
+  new Date(2026, 2, 22), // 22 de março - domingo
+  new Date(2026, 2, 29), // 29 de março - domingo
 ]
 
 // Simulated occupied time ranges per room per date key ("YYYY-MM-DD")
@@ -84,15 +105,26 @@ export function isSlotOccupied(
 
 export function isRangeAvailable(
   roomId: string,
-  date: Date,
+  startDate: Date,
+  endDate: Date,
   start: string,
   end: string
 ): boolean {
   const startIdx = TIME_OPTIONS.indexOf(start)
   const endIdx = TIME_OPTIONS.indexOf(end)
   if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false
-  for (let i = startIdx; i < endIdx; i++) {
-    if (isSlotOccupied(roomId, date, TIME_OPTIONS[i])) return false
+
+  const checkDay = (date: Date) => {
+    for (let i = startIdx; i < endIdx; i++) {
+      if (isSlotOccupied(roomId, date, TIME_OPTIONS[i])) return false
+    }
+    return true
+  }
+
+  let current = new Date(startDate)
+  while (current <= endDate) {
+    if (!checkDay(current)) return false
+    current.setDate(current.getDate() + 1)
   }
   return true
 }
@@ -105,8 +137,9 @@ function getEndTimeOptions(startTime: string): string[] {
 
 interface BookingCalendarProps {
   room: Room
-  selectedDate: Date | undefined
-  onSelectDate: (date: Date | undefined) => void
+  // allows selecting a single date or a consecutive range
+  selectedRange: { from?: Date; to?: Date }
+  onSelectRange: (range: { from?: Date; to?: Date }) => void
   startTime: string
   endTime: string
   onStartTimeChange: (time: string) => void
@@ -129,8 +162,8 @@ interface BookingCalendarProps {
 
 export function BookingCalendar({
   room,
-  selectedDate,
-  onSelectDate,
+  selectedRange,
+  onSelectRange,
   startTime,
   endTime,
   onStartTimeChange,
@@ -139,35 +172,30 @@ export function BookingCalendar({
   priceData,
 }: BookingCalendarProps) {
   const [carouselIndex, setCarouselIndex] = useState(0)
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+
+  const today = new Date()
+  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+  const [leftMonth, setLeftMonth] = useState(currentMonth)
 
   // Reset carousel when room changes
   useEffect(() => {
     setCarouselIndex(0)
   }, [room.id])
 
-  const today = new Date()
-  const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
-  const nextMonth = addMonths(currentMonth, 1)
-
   const endOptions = startTime ? getEndTimeOptions(startTime) : []
 
-  const canConfirm = selectedDate && startTime && endTime
+  const canConfirm = selectedRange.from && startTime && endTime
 
   const roomImages = room.images && room.images.length > 0 ? room.images : [room.image]
 
-  // Format the selected date for display
-  const formattedDate = selectedDate
-    ? selectedDate.toLocaleDateString("pt-BR", {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })
-    : ""
-
-  // Capitalize first letter
-  const capitalizedDate =
-    formattedDate.charAt(0).toUpperCase() + formattedDate.slice(1)
+  // Calculate unavailable dates (all Sundays) for the displayed months and adjacent months
+  const unavailableDates = [
+    ...getSundaysInMonth(addMonths(leftMonth, -1).getFullYear(), addMonths(leftMonth, -1).getMonth()), // Previous month
+    ...getSundaysInMonth(leftMonth.getFullYear(), leftMonth.getMonth()), // Current month (left calendar)
+    ...getSundaysInMonth(addMonths(leftMonth, 1).getFullYear(), addMonths(leftMonth, 1).getMonth()), // Next month (right calendar)
+    ...getSundaysInMonth(addMonths(leftMonth, 2).getFullYear(), addMonths(leftMonth, 2).getMonth()), // Month after next
+  ]
 
   // Get month name for subtitle
   const currentMonthName = today.toLocaleDateString("pt-BR", { month: "long" })
@@ -183,79 +211,129 @@ export function BookingCalendar({
   }
 
   return (
-    <div className="flex flex-col gap-0 lg:flex-row lg:gap-6">
-      {/* Left side: Calendars */}
-      <div className="flex-1 flex flex-col gap-4">
-        {/* Header */}
-        <div>
-          <h3 className="text-lg font-bold italic text-foreground">
-            {"Sele\u00e7\u00e3o de Sala e Data"}
-          </h3>
-          <p className="text-sm text-muted-foreground">
-            Local: {room.name} - Disponibilidade para {capitalizedMonth}{" "}
-            {today.getFullYear()}
-          </p>
-        </div>
-
-        {/* Two side-by-side calendars */}
-        <div className="rounded-lg border bg-card p-3">
-          <div className="flex flex-col gap-4 md:flex-row md:gap-2">
-            <div className="flex-1 flex justify-center">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={onSelectDate}
-                locale={ptBR}
-                defaultMonth={currentMonth}
-                disabled={[{ before: new Date() }, ...UNAVAILABLE_DATES]}
-                className="mx-auto"
-              />
-            </div>
-            <div className="flex-1 flex justify-center">
-              <Calendar
-                mode="single"
-                selected={selectedDate}
-                onSelect={onSelectDate}
-                locale={ptBR}
-                defaultMonth={nextMonth}
-                disabled={[{ before: new Date() }, ...UNAVAILABLE_DATES]}
-                className="mx-auto"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Room Info Bar */}
-        <div className="flex items-center gap-4 text-sm text-muted-foreground">
-          <div className="flex items-center gap-1.5">
-            <Clock className="size-4" />
-            <span className="font-medium text-foreground">{"Hor\u00e1rio"}</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Users className="size-4" />
-            <span>Capacidade: {room.capacity}</span>
-          </div>
-          {room.amenities.includes("Projetor") && (
-            <Wifi className="size-4" />
-          )}
-          {room.amenities.includes("Projetor") && (
-            <Monitor className="size-4" />
-          )}
-        </div>
+    <div className="flex flex-col gap-6">
+      {/* Header - Title and Subtitle */}
+      <div>
+        <h3 className="text-lg font-bold italic text-foreground">
+          {"Sele\u00e7\u00e3o de Sala e Data"}
+        </h3>
+        <p className="text-sm text-muted-foreground">
+          Local: {room.name} - Disponibilidade para {capitalizedMonth}{" "}
+          {today.getFullYear()}
+        </p>
       </div>
 
-      {/* Right side: Image Carousel + Booking Summary */}
-      <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4 mt-4 lg:mt-0">
+      {/* Main Content: Calendars and Right Side (aligned) */}
+      <div className="flex flex-col gap-6 lg:flex-row lg:gap-6 lg:items-start">
+        {/* Left side: Calendars */}
+        <div className="flex-1">
+        <div className="rounded-lg border bg-card p-3 flex flex-col gap-4 md:flex-row md:gap-2">
+            <div className="flex-1 flex justify-center">
+              <Calendar
+                mode="range"
+                selected={
+                  selectedRange.from
+                    ? { from: selectedRange.from, to: selectedRange.to }
+                    : undefined
+                }
+                onSelect={(range) => {
+                  if (!range) {
+                    onSelectRange({})
+                  } else if (Array.isArray(range)) {
+                    onSelectRange({ from: range[0], to: range[1] })
+                  } else if (range instanceof Date) {
+                    onSelectRange({ from: range })
+                  } else {
+                    onSelectRange({ from: range.from, to: range.to })
+                  }
+                }}
+                locale={ptBR}
+                month={leftMonth}
+                onMonthChange={setLeftMonth}
+                disabled={[{ before: new Date() }, ...unavailableDates]}
+                className="mx-auto"
+              />
+            </div>
+            <div className="flex-1 flex justify-center">
+              <Calendar
+                mode="range"
+                selected={
+                  selectedRange.from
+                    ? { from: selectedRange.from, to: selectedRange.to }
+                    : undefined
+                }
+                onSelect={(range) => {
+                  if (!range) {
+                    onSelectRange({})
+                  } else if (Array.isArray(range)) {
+                    onSelectRange({ from: range[0], to: range[1] })
+                  } else if (range instanceof Date) {
+                    onSelectRange({ from: range })
+                  } else {
+                    onSelectRange({ from: range.from, to: range.to })
+                  }
+                }}
+                locale={ptBR}
+                month={addMonths(leftMonth, 1)}
+                disabled={[{ before: new Date() }, ...unavailableDates]}
+                className="mx-auto"
+              />
+            </div>
+          </div>
+        {/* Legend area below calendars moved inside left side */}
+        <div className="mt-2 border rounded-lg bg-card p-4 text-sm text-muted-foreground">
+          {/* amenities icons */}
+          <div className="flex items-center gap-6 mb-3">
+            <div className="flex items-center gap-1.5">
+              <Users className="size-4" />
+              <span>Capacidade: {room.capacity}</span>
+            </div>
+            {room.amenities.includes("Projetor") && (
+              <div className="flex items-center gap-1.5">
+                <Monitor className="size-4" />
+                <span>Projetor 4K</span>
+              </div>
+            )}
+            {room.amenities.includes("Internet") && (
+              <div className="flex items-center gap-1.5">
+                <Wifi className="size-4" />
+                <span>Internet Dedicada</span>
+              </div>
+            )}
+          </div>
+          {/* color legend and rule */}
+          <div className="flex items-center gap-8">
+            <div className="flex items-center gap-2">
+              <span className="block w-3 h-3 rounded-full border"></span>
+              <span>Livre</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="block w-3 h-3 rounded-full bg-primary"></span>
+              <span>Selecionado</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="block w-3 h-3 rounded-full bg-muted"></span>
+              <span>Indisponível</span>
+            </div>
+            <div className="ml-auto">
+              <span className="font-medium">Regra:</span> Reservas com antecedência mínima de 24 horas
+            </div>
+          </div>
+        </div>
+        </div>
+
+        {/* Right side: Image Carousel + Booking Summary */}
+        <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4">
         {/* Image Carousel */}
         <div className="relative aspect-video w-full overflow-hidden rounded-lg group">
           <Image
             src={roomImages[carouselIndex]}
             alt={`${room.name} - Foto ${carouselIndex + 1}`}
             fill
-            className="object-cover transition-opacity duration-300"
+            className="object-cover transition-opacity duration-300 cursor-pointer"
             sizes="320px"
+            onClick={() => setIsLightboxOpen(true)}
           />
-
           {roomImages.length > 1 && (
             <>
               {/* Previous button */}
@@ -301,18 +379,91 @@ export function BookingCalendar({
           )}
         </div>
 
+        {/* Lightbox dialog */}
+        <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
+          <DialogContent className="max-w-3xl p-0 bg-transparent">
+            <DialogTitle className="sr-only">
+              Galeria de imagens - {room.name}
+            </DialogTitle>
+            <div className="relative w-full h-[60vh]">
+              <Image
+                src={roomImages[carouselIndex]}
+                alt={`${room.name} - Foto ${carouselIndex + 1}`}
+                fill
+                className="object-contain"
+                sizes="100vw"
+              />
+              <button
+                onClick={handlePrevImage}
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background"
+                aria-label="Imagem anterior"
+              >
+                <ChevronLeft className="size-6" />
+              </button>
+              <button
+                onClick={handleNextImage}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background"
+                aria-label="Próxima imagem"
+              >
+                <ChevronRight className="size-6" />
+              </button>
+
+              {/* Dot indicators */}
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+                {roomImages.map((_, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => setCarouselIndex(idx)}
+                    className={cn(
+                      "size-2 rounded-full transition-all",
+                      idx === carouselIndex
+                        ? "bg-background w-4"
+                        : "bg-background/60 hover:bg-background/80"
+                    )}
+                    aria-label={`Ir para imagem ${idx + 1}`}
+                  />
+                ))}
+              </div>
+
+              {/* Counter */}
+              <div className="absolute top-2 right-2 rounded-full bg-background/80 px-2 py-0.5 text-xs font-medium text-foreground">
+                {carouselIndex + 1}/{roomImages.length}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Booking Summary */}
         <div className="flex flex-col gap-3">
           <h4 className="text-lg font-bold text-foreground">
             Resumo da Reserva
           </h4>
 
-          {selectedDate ? (
+          {selectedRange.from ? (
             <>
               <div className="flex flex-col gap-1 text-sm">
                 <p>
                   <span className="font-semibold">Data:</span>{" "}
-                  {capitalizedDate}
+                  {selectedRange.from
+                    ? selectedRange.to
+                      ? `${selectedRange.from.toLocaleDateString("pt-BR", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })} – ${selectedRange.to.toLocaleDateString("pt-BR", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })}`
+                      : selectedRange.from.toLocaleDateString("pt-BR", {
+                          weekday: "long",
+                          day: "numeric",
+                          month: "long",
+                          year: "numeric",
+                        })
+                    : "Nenhuma data selecionada"}
                 </p>
                 <p>
                   <span className="font-semibold">Sala:</span> {room.name}
@@ -413,10 +564,11 @@ export function BookingCalendar({
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Selecione uma data no calendario para ver o resumo.
+              Selecione uma ou mais datas no calendário para ver o resumo.
             </p>
           )}
         </div>
+      </div>
       </div>
     </div>
   )

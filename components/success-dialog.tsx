@@ -16,7 +16,7 @@ interface SuccessDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   roomName: string
-  date: Date | undefined
+  dateRange?: { from?: Date; to?: Date }
   startTime: string
   endTime: string
   total: number
@@ -26,7 +26,7 @@ export function SuccessDialog({
   open,
   onOpenChange,
   roomName,
-  date,
+  dateRange,
   startTime,
   endTime,
   total,
@@ -52,11 +52,14 @@ export function SuccessDialog({
               <span className="text-muted-foreground">{"Espa\u00e7o"}</span>
               <span className="font-medium text-foreground">{roomName}</span>
             </div>
-            {date && (
+            {dateRange?.from && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Data</span>
                 <span className="font-medium text-foreground">
-                  {date.toLocaleDateString("pt-BR")}
+                  {dateRange.from.toLocaleDateString("pt-BR")}
+                  {dateRange.to
+                    ? ` – ${dateRange.to.toLocaleDateString("pt-BR")}`
+                    : ""}
                 </span>
               </div>
             )}
