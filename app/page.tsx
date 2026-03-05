@@ -9,13 +9,7 @@ import { UnavailableState } from "@/components/unavailable-state"
 import { SuccessDialog } from "@/components/success-dialog"
 import { Card, CardContent } from "@/components/ui/card"
 import { CalendarDays } from "lucide-react"
-
-function calculateDurationHours(start: string, end: string): number {
-  if (!start || !end) return 0
-  const [sh, sm] = start.split(":").map(Number)
-  const [eh, em] = end.split(":").map(Number)
-  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
-}
+import { calculateRoomPrice } from "@/lib/utils"
 
 export default function Home() {
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
@@ -23,6 +17,8 @@ export default function Home() {
   const [startTime, setStartTime] = useState("")
   const [endTime, setEndTime] = useState("")
   const [isAssociado, setIsAssociado] = useState(false)
+  const [associadoMonths, setAssociadoMonths] = useState(0)
+  const [cnpj, setCnpj] = useState("")
   const [showSuccess, setShowSuccess] = useState(false)
 
   const handleSelectRoom = useCallback((room: Room) => {
@@ -30,6 +26,7 @@ export default function Home() {
     setSelectedDate(undefined)
     setStartTime("")
     setEndTime("")
+    setCnpj("")
   }, [])
 
   const handleSelectDate = useCallback((date: Date | undefined) => {
@@ -43,6 +40,7 @@ export default function Home() {
     setSelectedDate(undefined)
     setStartTime("")
     setEndTime("")
+    setCnpj("")
   }, [])
 
   const handleConfirm = useCallback(() => {
@@ -57,13 +55,17 @@ export default function Home() {
     endTime &&
     !isRangeAvailable(selectedRoom.id, selectedDate, startTime, endTime)
 
-  const hours = calculateDurationHours(startTime, endTime)
-  const baseValue = selectedRoom ? selectedRoom.pricePerHour * hours : 0
-  const isWeekend =
-    selectedDate?.getDay() === 0 || selectedDate?.getDay() === 6
-  const weekendSurcharge = isWeekend ? baseValue * 0.3 : 0
-  const discount = isAssociado ? (baseValue + weekendSurcharge) * 0.15 : 0
-  const total = baseValue + weekendSurcharge - discount
+  const priceData = selectedRoom
+    ? calculateRoomPrice(
+        selectedRoom,
+        selectedDate,
+        startTime,
+        endTime,
+        isAssociado ? associadoMonths : 0
+      )
+    : { basePrice: 0, discountPercent: 0, discount: 0, finalPrice: 0, appliedMinimumHours: 0 }
+
+  const total = priceData.finalPrice
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -129,7 +131,17 @@ export default function Home() {
                       startTime={startTime}
                       endTime={endTime}
                       isAssociado={isAssociado}
-                      onToggleAssociado={() => setIsAssociado((v) => !v)}
+                      onToggleAssociado={() => {
+                        setIsAssociado((v) => !v)
+                        if (isAssociado) {
+                          setCnpj("")
+                          setAssociadoMonths(0)
+                        }
+                      }}
+                      associadoMonths={associadoMonths}
+                      onAssociadoMonthsChange={setAssociadoMonths}
+                      cnpj={cnpj}
+                      onCnpjChange={setCnpj}
                       onConfirm={handleConfirm}
                     />
                   )}

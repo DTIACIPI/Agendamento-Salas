@@ -3,15 +3,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import { Input } from "@/components/ui/input"
 import { Receipt, Tag, CalendarDays, Clock } from "lucide-react"
 import type { Room } from "@/components/room-list"
-
-function calculateDurationHours(start: string, end: string): number {
-  if (!start || !end) return 0
-  const [sh, sm] = start.split(":").map(Number)
-  const [eh, em] = end.split(":").map(Number)
-  return ((eh * 60 + em) - (sh * 60 + sm)) / 60
-}
+import { calculateRoomPrice, calculateDurationHours } from "@/lib/utils"
 
 interface BookingSummaryProps {
   room: Room
@@ -20,6 +15,10 @@ interface BookingSummaryProps {
   endTime: string
   isAssociado: boolean
   onToggleAssociado: () => void
+  associadoMonths: number
+  onAssociadoMonthsChange: (months: number) => void
+  cnpj: string
+  onCnpjChange: (cnpj: string) => void
   onConfirm: () => void
 }
 
@@ -30,16 +29,21 @@ export function BookingSummary({
   endTime,
   isAssociado,
   onToggleAssociado,
+  associadoMonths,
+  onAssociadoMonthsChange,
+  cnpj,
+  onCnpjChange,
   onConfirm,
 }: BookingSummaryProps) {
-  const hours = calculateDurationHours(startTime, endTime)
-  const baseValue = room.pricePerHour * hours
-  const isWeekend =
-    selectedDate?.getDay() === 0 || selectedDate?.getDay() === 6
-  const weekendSurcharge = isWeekend ? baseValue * 0.3 : 0
-  const discount = isAssociado ? (baseValue + weekendSurcharge) * 0.15 : 0
-  const total = baseValue + weekendSurcharge - discount
+  const priceData = calculateRoomPrice(
+    room,
+    selectedDate,
+    startTime,
+    endTime,
+    isAssociado ? associadoMonths : 0
+  )
 
+  const hours = calculateDurationHours(startTime, endTime)
   const canConfirm = selectedDate && startTime && endTime && hours > 0
 
   return (
@@ -75,30 +79,26 @@ export function BookingSummary({
               <div className="flex items-center justify-between">
                 <span className="text-muted-foreground">Valor base</span>
                 <span className="font-medium text-foreground">
-                  R$ {baseValue.toFixed(2).replace(".", ",")}
+                  R$ {priceData.basePrice.toFixed(2).replace(".", ",")}
                 </span>
               </div>
 
-              {isWeekend && (
-                <div className="flex items-center justify-between text-warning-foreground">
-                  <span className="flex items-center gap-1">
-                    <Tag className="size-3" />
-                    {"Final de semana (+30%)"}
-                  </span>
-                  <span className="font-medium">
-                    + R$ {weekendSurcharge.toFixed(2).replace(".", ",")}
+              {priceData.appliedMinimumHours > 0 && (
+                <div className="flex items-center justify-between text-info-foreground">
+                  <span className="text-xs text-muted-foreground">
+                    (Mínimo de {priceData.appliedMinimumHours}h aplicado)
                   </span>
                 </div>
               )}
 
-              {isAssociado && (
-                <div className="flex items-center justify-between text-success">
+              {priceData.discountPercent > 0 && (
+                <div className="flex items-center justify-between text-primary">
                   <span className="flex items-center gap-1">
                     <Tag className="size-3" />
-                    {"Associado ACIPI (-15%)"}
+                    {`Associado ACIPI (-${priceData.discountPercent}%)`}
                   </span>
                   <span className="font-medium">
-                    - R$ {discount.toFixed(2).replace(".", ",")}
+                    - R$ {priceData.discount.toFixed(2).replace(".", ",")}
                   </span>
                 </div>
               )}
@@ -109,7 +109,7 @@ export function BookingSummary({
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-foreground">Valor Total</span>
               <span className="text-xl font-bold text-primary">
-                R$ {total.toFixed(2).replace(".", ",")}
+                R$ {priceData.finalPrice.toFixed(2).replace(".", ",")}
               </span>
             </div>
 
@@ -122,6 +122,42 @@ export function BookingSummary({
               />
               <span className="text-foreground">Sou associado ACIPI</span>
             </label>
+
+            {isAssociado && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="months" className="text-xs font-medium text-muted-foreground">
+                  Tempo de Associação (em meses)
+                </label>
+                <Input
+                  id="months"
+                  type="number"
+                  placeholder="Informe a quantidade de meses"
+                  value={associadoMonths || ""}
+                  onChange={(e) => onAssociadoMonthsChange(parseInt(e.target.value, 10) || 0)}
+                  min="0"
+                  className="text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Até 12 meses: 10% | 12-24 meses: 20% | Acima de 24 meses: 30%
+                </p>
+              </div>
+            )}
+
+            {isAssociado && (
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="cnpj" className="text-xs font-medium text-muted-foreground">
+                  CNPJ da Empresa
+                </label>
+                <Input
+                  id="cnpj"
+                  type="text"
+                  placeholder="00.000.000/0000-00"
+                  value={cnpj}
+                  onChange={(e) => onCnpjChange(e.target.value)}
+                  className="text-sm"
+                />
+              </div>
+            )}
 
             <Button
               onClick={onConfirm}

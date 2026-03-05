@@ -33,21 +33,23 @@ const UNAVAILABLE_DATES = [
 
 // Simulated occupied time ranges per room per date key ("YYYY-MM-DD")
 export const OCCUPIED_SLOTS: Record<string, Record<string, string[]>> = {
-  "sala-reuniao": {
+  sala: {
     "2026-03-02": ["08:00", "08:30", "09:00", "09:30"],
     "2026-03-03": ["14:00", "14:30", "15:00", "15:30", "16:00"],
     "2026-03-04": ["10:00", "10:30", "11:00"],
   },
-  "auditorio": {
+  auditorio: {
     "2026-03-02": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30", "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30", "17:00", "17:30"],
     "2026-03-03": ["08:00", "08:30", "09:00", "09:30"],
     "2026-03-05": ["13:00", "13:30", "14:00", "14:30"],
   },
-  "sala-treinamento": {
+  "auditorio-foyer": {
     "2026-03-02": ["13:00", "13:30", "14:00", "14:30", "15:00"],
     "2026-03-04": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30"],
   },
-  "coworking": {},
+  foyer: {},
+  miniauditorio: {},
+  "regional-sta-terezinha": {},
 }
 
 export { UNAVAILABLE_DATES }
@@ -178,15 +180,12 @@ export function BookingCalendar({
                 >
                   <option value="">Selecionar</option>
                   {TIME_OPTIONS.slice(0, -1).map((time) => {
-                    const occupied = isSlotOccupied(room.id, selectedDate, time)
                     return (
                       <option
                         key={time}
                         value={time}
-                        disabled={occupied}
                       >
                         {time}
-                        {occupied ? " (ocupado)" : ""}
                       </option>
                     )
                   })}
@@ -248,12 +247,12 @@ export function BookingCalendar({
           {conflicts.length > 0 && (
             <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
               <p className="font-medium">
-                {"Conflito de hor\u00e1rio detectado"}
+                {"Hor\u00e1rio parcialmente ocupado"}
               </p>
               <p className="mt-0.5 text-xs opacity-80">
                 {"Os hor\u00e1rios "}
                 {conflicts.join(", ")}
-                {" j\u00e1 est\u00e3o ocupados nesta sala."}
+                {" j\u00e1 est\u00e3o ocupados. Verifique as sugest\u00f5es de salas dispon\u00edveis abaixo."}
               </p>
             </div>
           )}

@@ -73,7 +73,7 @@ export function UnavailableState({
               {"Selecionar outra data/espa\u00e7o"}
             </Button>
             <Button
-              className="gap-2 bg-[oklch(0.45_0.18_155)] text-[oklch(0.99_0_0)] hover:bg-[oklch(0.40_0.18_155)]"
+              className="gap-2 bg-primary text-primary-foreground hover:bg-primary/90"
               asChild
             >
               <a
@@ -132,7 +132,7 @@ export function UnavailableState({
                   <div className="flex items-center gap-2">
                     <Badge
                       variant="secondary"
-                      className="bg-[oklch(0.55_0.16_155)]/10 text-[oklch(0.55_0.16_155)] text-[10px]"
+                      className="bg-primary/10 text-primary text-[10px]"
                     >
                       {"Dispon\u00edvel"}
                     </Badge>

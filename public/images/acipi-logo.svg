@@ -1,0 +1,17 @@
+<svg viewBox="0 0 600 700" xmlns="http://www.w3.org/2000/svg">
+  <!-- Light Blue Triangle -->
+  <polygon points="250,100 400,400 200,400" fill="#24BCFC"/>
+  
+  <!-- Dark Blue Triangle -->
+  <polygon points="400,200 520,450 350,450" fill="#001D5C"/>
+  
+  <!-- ACIPI Text -->
+  <text x="300" y="550" font-family="Arial, sans-serif" font-size="80" font-weight="bold" text-anchor="middle" fill="#001D5C">
+    ACIPI
+  </text>
+  
+  <!-- Subtitle -->
+  <text x="300" y="610" font-family="Arial, sans-serif" font-size="28" text-anchor="middle" fill="#24BCFC">
+    Associação Comercial e Industrial de Piracicaba
+  </text>
+</svg>

@@ -35,8 +35,8 @@ export function SuccessDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader className="items-center text-center">
-          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-success/15">
-            <CheckCircle2 className="size-8 text-success" />
+          <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/15">
+            <CheckCircle2 className="size-8 text-primary" />
           </div>
           <DialogTitle className="mt-2 text-xl text-foreground">
             {"Pr\u00e9-agendamento confirmado!"}

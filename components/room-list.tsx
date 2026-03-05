@@ -6,6 +6,12 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 
+export interface PricePeriod {
+  startHour: number
+  endHour: number
+  price: number
+}
+
 export interface Room {
   id: string
   name: string
@@ -13,50 +19,170 @@ export interface Room {
   capacity: number
   image: string
   amenities: string[]
-  pricePerHour: number
+  infrastructure: string[]
+  minHoursWeekday: number // Segunda a sexta
+  minHoursSaturday: number // Sábado
+  pricePeriodsWeekday: PricePeriod[] // Segunda a sexta
+  pricePeroidsSaturday: PricePeriod[] // Sábado
   available: boolean
 }
 
 export const ROOMS: Room[] = [
   {
-    id: "sala-reuniao",
-    name: "Sala de Reuni\u00e3o Executiva",
-    description: "Espa\u00e7o ideal para reuni\u00f5es corporativas e apresenta\u00e7\u00f5es.",
-    capacity: 12,
-    image: "/images/sala-reuniao.jpg",
-    amenities: ["Wi-Fi", "Projetor", "Ar-condicionado"],
-    pricePerHour: 80,
+    id: "sala",
+    name: "Sala",
+    description: "Espaço versátil para reuniões e pequenos eventos. Capacidade: 40 pessoas.",
+    capacity: 40,
+    image: "/images/SALA 02/Sala 02 (1).JPG",
+    amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
+    infrastructure: [
+      "Cadeiras e mesas",
+      "Ar-condicionado",
+      "2 caixas de som",
+      "1 microfone com fio",
+      "Quadro branco",
+      "1 tela para projeção",
+      "1 projetor marca Epson",
+      "1 mesa para café",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 120 }],
+    pricePeroidsSaturday: [{ startHour: 8, endHour: 13, price: 192 }],
     available: true,
   },
   {
     id: "auditorio",
-    name: "Audit\u00f3rio Principal",
-    description: "Espa\u00e7o amplo para eventos, palestras e workshops.",
-    capacity: 80,
-    image: "/images/auditorio.jpg",
-    amenities: ["Wi-Fi", "Sonoriza\u00e7\u00e3o", "Projetor", "Palco"],
-    pricePerHour: 250,
+    name: "Auditório",
+    description: "Espaço amplo com palco e equipamentos audiovisuais. Capacidade: 199 pessoas.",
+    capacity: 199,
+    image: "/images/AUDITÓRIO/Auditório (1).jpg",
+    amenities: ["Ar-condicionado", "Projetor", "Palco", "Microfone"],
+    infrastructure: [
+      "Poltronas individuais",
+      "Palco com 2 caixas de retorno",
+      "Ar-condicionado",
+      "1 tela para projeção de 187\"",
+      "2 telas para projeção de 138\"",
+      "3 projetores",
+      "1 mesa para equipamentos",
+      "1 cadeira tipo secretária",
+      "1 púlpito",
+      "1 microfone",
+      "3 mesas de madeira para composição de mesa",
+      "10 cadeiras tipo executiva",
+      "1 porta-bandeira com as bandeiras nacional, estadual e municipal",
+      "2 mesas para apoio",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 925 }],
+    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 1480 }],
     available: true,
   },
   {
-    id: "sala-treinamento",
-    name: "Sala de Treinamento",
-    description: "Sala equipada para cursos e capacita\u00e7\u00f5es profissionais.",
-    capacity: 30,
-    image: "/images/sala-treinamento.jpg",
-    amenities: ["Wi-Fi", "Projetor", "Mesas individuais"],
-    pricePerHour: 120,
+    id: "auditorio-foyer",
+    name: "Auditório + Foyer",
+    description: "Auditório com acesso ao Foyer. Capacidade: 199 pessoas.",
+    capacity: 199,
+    image: "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
+    amenities: ["Ar-condicionado", "Projetor", "Palco", "Cozinha"],
+    infrastructure: [
+      "Poltronas individuais",
+      "Palco com 2 caixas de retorno",
+      "Ar-condicionado",
+      "1 tela para projeção de 187\"",
+      "2 telas para projeção de 138\"",
+      "3 projetores",
+      "1 mesa para equipamentos",
+      "1 cadeira tipo secretária",
+      "1 púlpito",
+      "1 microfone",
+      "3 mesas de madeira para composição de mesa",
+      "10 cadeiras tipo executiva",
+      "1 porta-bandeira com as bandeiras nacional, estadual e municipal",
+      "2 mesas para apoio",
+      "2 mesas medindo L 1,10 x C 3,00",
+      "3 mesas medindo L 0,80 x C 1,40",
+      "1 bebedouro",
+      "Cozinha com geladeira, fogão de 4 bocas industrial, coifa",
+      "2 mesas medindo L 0,80 x C 1,20",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 1155 }],
+    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 1848 }],
     available: true,
   },
   {
-    id: "coworking",
-    name: "Espa\u00e7o Coworking",
-    description: "Ambiente compartilhado para trabalho colaborativo.",
+    id: "foyer",
+    name: "Foyer",
+    description: "Espaço para recepção com cozinha. Capacidade: 199 pessoas.",
+    capacity: 199,
+    image: "/images/FOYER/Foyer (1).JPG",
+    amenities: ["Ar-condicionado", "Cozinha", "Bebedouro"],
+    infrastructure: [
+      "2 mesas medindo L 1,10 x C 3,00",
+      "3 mesas medindo L 0,80 x C 1,40",
+      "1 bebedouro",
+      "Ar-condicionado",
+      "Cozinha com geladeira, fogão de 4 bocas industrial, coifa",
+      "2 mesas medindo L 0,80 x C 1,20",
+      "2 mesas plásticas medindo L 0,85 x C 1,37",
+      "2 ventiladores",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 337.5 }],
+    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 540 }],
+    available: true,
+  },
+  {
+    id: "miniauditorio",
+    name: "Miniauditório",
+    description: "Sala de eventos menor com equipamentos audiovisuais. Capacidade: 74 pessoas.",
+    capacity: 74,
+    image: "/images/MINIAUDITÓRIO/Miniauditório (1).jpg",
+    amenities: ["Ar-condicionado", "Projetor", "Microfone"],
+    infrastructure: [
+      "Poltronas individuais",
+      "Ar-condicionado",
+      "Caixa de som",
+      "Quadro branco",
+      "1 tela para projeção",
+      "1 projetor",
+      "1 microfone sem fio",
+      "2 mesas",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [
+      { startHour: 8, endHour: 18, price: 175 },
+      { startHour: 18, endHour: 22, price: 200 },
+    ],
+    pricePeroidsSaturday: [{ startHour: 8, endHour: 17, price: 280 }],
+    available: true,
+  },
+  {
+    id: "regional-sta-terezinha",
+    name: "Regional Sta. Terezinha",
+    description: "Sala de treinamento compacta. Capacidade: 20 pessoas.",
     capacity: 20,
-    image: "/images/coworking.jpg",
-    amenities: ["Wi-Fi", "Caf\u00e9", "Impress\u00e3o"],
-    pricePerHour: 40,
-    available: false,
+    image: "/images/REGIONAL/Escritório Regional (1).jpg",
+    amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
+    infrastructure: [
+      "Cadeiras universitárias",
+      "Ar-condicionado",
+      "1 caixa de som",
+      "1 tela para projeção",
+      "1 projetor",
+      "2 mesas",
+    ],
+    minHoursWeekday: 4,
+    minHoursSaturday: 5,
+    pricePeriodsWeekday: [{ startHour: 8, endHour: 18, price: 57.5 }],
+    pricePeroidsSaturday: [], // Sábado não realiza locação
+    available: true,
   },
 ]
 
@@ -115,7 +241,7 @@ export function RoomList({ selectedRoomId, onSelectRoom }: RoomListProps) {
                       {room.available ? (
                         <Badge
                           variant="secondary"
-                          className="shrink-0 bg-success/10 text-success text-[10px]"
+                          className="shrink-0 bg-primary/10 text-primary text-[10px]"
                         >
                           {"Dispon\u00edvel"}
                         </Badge>
