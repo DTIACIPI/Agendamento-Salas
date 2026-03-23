@@ -1,9 +1,8 @@
 "use client"
 
 import Image from "next/image"
-import { Users, Monitor, Wifi, Coffee } from "lucide-react"
-import { Card, CardContent } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
+import { Users, CheckCircle2 } from "lucide-react"
+import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 
 export interface PricePeriod {
@@ -248,12 +247,6 @@ export const ROOMS: Room[] = [
   },
 ]
 
-const amenityIcons: Record<string, React.ReactNode> = {
-  "Wi-Fi": <Wifi className="size-3" />,
-  "Projetor": <Monitor className="size-3" />,
-  "Caf\u00e9": <Coffee className="size-3" />,
-}
-
 interface RoomListProps {
   selectedRoomId: string | null
   onSelectRoom: (room: Room) => void
@@ -261,88 +254,87 @@ interface RoomListProps {
 
 export function RoomList({ selectedRoomId, onSelectRoom }: RoomListProps) {
   return (
-    <div className="flex flex-col gap-3">
-      <div>
-        <h2 className="text-lg font-semibold text-foreground">{"Espa\u00e7os dispon\u00edveis"}</h2>
-        <p className="text-sm text-muted-foreground">
-          {"Selecione um espa\u00e7o para visualizar a disponibilidade"}
-        </p>
-      </div>
-
+    <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
         {ROOMS.map((room) => (
           <Card
             key={room.id}
             className={cn(
-              "cursor-pointer transition-all duration-200 hover:shadow-md",
+              "p-0 cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-white transition-all duration-300",
+              "shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-md",
               selectedRoomId === room.id
-                ? "ring-2 ring-primary shadow-md"
-                : "hover:border-primary/30",
-              !room.available && "opacity-60"
+                ? "ring-2 ring-primary"
+                : "hover:ring-1 hover:ring-primary/20",
+              !room.available && "opacity-75 grayscale-[0.5]"
             )}
             onClick={() => onSelectRoom(room)}
           >
-            <CardContent className="p-3">
-              <div className="flex gap-3">
-                <div className="relative h-16 w-24 shrink-0 overflow-hidden rounded-md">
-                  <Image
-                    src={room.image}
-                    alt={room.name}
-                    fill
-                    className="object-cover"
-                    sizes="96px"
-                  />
-                </div>
-
-                <div className="flex min-w-0 flex-1 flex-col justify-between">
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-sm font-semibold leading-tight text-foreground">
-                        {room.name}
-                      </h3>
-                      {room.available ? (
-                        <Badge
-                          variant="secondary"
-                          className="shrink-0 bg-primary/10 text-primary text-[10px]"
-                        >
-                          {"Dispon\u00edvel"}
-                        </Badge>
-                      ) : (
-                        <Badge
-                          variant="secondary"
-                          className="shrink-0 bg-destructive/10 text-destructive text-[10px]"
-                        >
-                          {"Indispon\u00edvel"}
-                        </Badge>
-                      )}
-                    </div>
-                    <p className="mt-0.5 text-xs text-muted-foreground line-clamp-1">
-                      {room.description}
-                    </p>
-                  </div>
-
-                  <div className="mt-1.5 flex items-center justify-between">
-                    <div className="flex items-center gap-1.5 text-muted-foreground">
-                      <Users className="size-3" />
-                      <span className="text-xs">
-                        {"At\u00e9"} {room.capacity} pessoas
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      {room.amenities.slice(0, 3).map((amenity) => (
-                        <span
-                          key={amenity}
-                          className="flex items-center gap-0.5 rounded bg-secondary px-1.5 py-0.5 text-[10px] text-secondary-foreground"
-                        >
-                          {amenityIcons[amenity] || null}
-                          {amenity}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+            <div className="flex flex-col sm:flex-row items-stretch">
+              
+              {/* Container da Imagem */}
+              <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-48 sm:h-auto sm:w-[35%] aspect-video sm:aspect-square xl:aspect-[4/3]">
+                <Image
+                  src={room.image}
+                  alt={room.name}
+                  fill
+                  className="object-cover"
+                  sizes="192px"
+                />
               </div>
-            </CardContent>
+
+              {/* Container de Conteúdo */}
+              <div className="flex flex-1 flex-col justify-start p-3 sm:py-3 sm:pr-4 sm:pl-2">
+                
+                {/* Badge de Status */}
+                <div
+                  className={cn(
+                    "mb-2 inline-flex w-fit items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold",
+                    room.available
+                      ? "border-green-200 bg-green-50 text-green-700"
+                      : "border-red-200 bg-red-50 text-red-700"
+                  )}
+                >
+                  <CheckCircle2 className="size-3.5" />
+                  {room.available ? "Disponível" : "Indisponível"}
+                </div>
+
+                {/* Título */}
+                <h3 className="mb-1 text-lg font-bold leading-tight text-[#384050]">
+                  {room.name}
+                </h3>
+
+                {/* Descrição */}
+                <p className="mb-3 text-sm leading-snug text-gray-600 line-clamp-2">
+                  {room.description}
+                </p>
+
+                {/* Capacidade */}
+                <div className="mb-3 flex items-center gap-1.5 text-sm font-medium text-[#384050]">
+                  <Users className="size-4 text-gray-500" />
+                  <span>
+                    Capacidade: Até <span className="font-bold">{room.capacity}</span>
+                  </span>
+                </div>
+
+                {/* Container de Comodidades */}
+                <div className="mt-auto rounded-md border border-slate-200 bg-slate-50 p-2">
+                  <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-600">
+                    Comodidades
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {room.amenities.map((amenity) => (
+                      <span
+                        key={amenity}
+                        className="flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap"
+                      >
+                        {amenity}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+              </div>
+            </div>
           </Card>
         ))}
       </div>

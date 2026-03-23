@@ -38,7 +38,7 @@ export function SuccessDialog({
           <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-primary/15">
             <CheckCircle2 className="size-8 text-primary" />
           </div>
-          <DialogTitle className="mt-2 text-xl text-foreground">
+          <DialogTitle className="mt-2 text-xl text-[#384050]">
             {"Pr\u00e9-agendamento confirmado!"}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
@@ -50,12 +50,12 @@ export function SuccessDialog({
           <div className="flex flex-col gap-2 text-sm">
             <div className="flex justify-between">
               <span className="text-muted-foreground">{"Espa\u00e7o"}</span>
-              <span className="font-medium text-foreground">{roomName}</span>
+              <span className="font-medium text-[#384050]">{roomName}</span>
             </div>
             {dateRange?.from && (
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Data</span>
-                <span className="font-medium text-foreground">
+                <span className="font-medium text-[#384050]">
                   {dateRange.from.toLocaleDateString("pt-BR")}
                   {dateRange.to
                     ? ` – ${dateRange.to.toLocaleDateString("pt-BR")}`
@@ -65,13 +65,13 @@ export function SuccessDialog({
             )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">{"Hor\u00e1rio"}</span>
-              <span className="font-medium text-foreground">
+              <span className="font-medium text-[#384050]">
                 {startTime} &ndash; {endTime}
               </span>
             </div>
             <Separator className="my-1" />
             <div className="flex justify-between">
-              <span className="font-semibold text-foreground">Total</span>
+              <span className="font-semibold text-[#384050]">Total</span>
               <span className="text-lg font-bold text-primary">
                 R$ {total.toFixed(2).replace(".", ",")}
               </span>
@@ -79,7 +79,7 @@ export function SuccessDialog({
           </div>
         </div>
 
-        <DialogFooter className="flex flex-col gap-2 sm:flex-col">
+        <DialogFooter className="flex flex-col gap-2 sm:justify-center">
           <Button
             size="lg"
             className="w-full gap-2 text-base"

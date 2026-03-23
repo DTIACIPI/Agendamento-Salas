@@ -12,6 +12,11 @@ import {
   Users,
   Wifi,
   Monitor,
+  Plus,
+  Trash2,
+  Edit2,
+  Save,
+  X,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -30,7 +35,7 @@ function generateTimeOptions(): string[] {
   return times
 }
 
-const TIME_OPTIONS = generateTimeOptions()
+export const TIME_OPTIONS = generateTimeOptions()
 
 // Function to get all Sundays in a given month
 function getSundaysInMonth(year: number, month: number): Date[] {
@@ -65,24 +70,12 @@ const UNAVAILABLE_DATES = [
 
 // Simulated occupied time ranges per room per date key ("YYYY-MM-DD")
 export const OCCUPIED_SLOTS: Record<string, Record<string, string[]>> = {
-  sala: {
-    "2026-03-02": ["08:00", "08:30", "09:00", "09:30"],
-    "2026-03-03": ["14:00", "14:30", "15:00", "15:30", "16:00"],
-    "2026-03-04": ["10:00", "10:30", "11:00"],
-  },
+  sala: {},
   auditorio: {
-    "2026-03-02": [
-      "08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30",
-      "13:00", "13:30", "14:00", "14:30", "15:00", "15:30", "16:00", "16:30",
-      "17:00", "17:30",
-    ],
-    "2026-03-03": ["08:00", "08:30", "09:00", "09:30"],
-    "2026-03-05": ["13:00", "13:30", "14:00", "14:30"],
+    "2026-03-19": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"],
+    "2026-03-21": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"],
   },
-  "auditorio-foyer": {
-    "2026-03-02": ["13:00", "13:30", "14:00", "14:30", "15:00"],
-    "2026-03-04": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30"],
-  },
+  "auditorio-foyer": {},
   foyer: {},
   miniauditorio: {},
   "regional-sta-terezinha": {},
@@ -129,12 +122,6 @@ export function isRangeAvailable(
   return true
 }
 
-function getEndTimeOptions(startTime: string): string[] {
-  const startIdx = TIME_OPTIONS.indexOf(startTime)
-  if (startIdx === -1) return []
-  return TIME_OPTIONS.slice(startIdx + 1)
-}
-
 interface BookingCalendarProps {
   room: Room
   // allows selecting a single date or a consecutive range
@@ -158,11 +145,21 @@ interface BookingCalendarProps {
     finalPrice: number
     appliedMinimumHours: number
   }
+  bookings: any[] // Using any for simplicity in diff, ideally import BookingItem type
+  onDaySelect: (date: Date) => void
+  onRemoveBooking: (id: string) => void
+  onEditBooking: (id: string) => void
+  onUpdateBooking: (id: string, data: any) => void
+  onSaveBooking: (id: string) => void
+  unsavedIds: string[]
+  totalPrice: number
+  onApplyDefaultTime: (start: string, end: string) => void
 }
 
 export function BookingCalendar({
   room,
   selectedRange,
+  onDaySelect,
   onSelectRange,
   startTime,
   endTime,
@@ -170,22 +167,56 @@ export function BookingCalendar({
   onEndTimeChange,
   onConfirm,
   priceData,
+  bookings,
+  onRemoveBooking,
+  onEditBooking,
+  onUpdateBooking,
+  onSaveBooking,
+  unsavedIds,
+  onApplyDefaultTime,
+  totalPrice,
 }: BookingCalendarProps) {
   const [carouselIndex, setCarouselIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
 
+  const [draftStartTime, setDraftStartTime] = useState(startTime)
+  const [draftEndTime, setDraftEndTime] = useState(endTime)
   const today = new Date()
   const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
   const [leftMonth, setLeftMonth] = useState(currentMonth)
 
+  // Cria uma chave a partir dos agendamentos para forçar a nova renderização do calendário na mudança da data da seleção
+  const selectionKey = bookings.map((b) => `${b.id}-${b.selectedRange.from?.getTime() || 0}`).join("-")
+
   // Reset carousel when room changes
   useEffect(() => {
     setCarouselIndex(0)
-  }, [room.id])
+    setDraftStartTime(startTime)
+    setDraftEndTime(endTime)
+  }, [room.id, startTime, endTime]) // Sync if parent resets
 
-  const endOptions = startTime ? getEndTimeOptions(startTime) : []
+  const draftStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
+    const isOccupiedGlobally = bookings.some(b => b.selectedRange.from && isSlotOccupied(room.id, b.selectedRange.from, time));
+    return { time, disabled: isOccupiedGlobally };
+  });
 
-  const canConfirm = selectedRange.from && startTime && endTime
+  const getDraftEndOptions = (start: string) => {
+    const startIdx = TIME_OPTIONS.indexOf(start);
+    if (startIdx === -1) return [];
+    const options = [];
+    let hitOccupied = false;
+    for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
+      const time = TIME_OPTIONS[i];
+      const prevSlotOccupied = bookings.some(b => b.selectedRange.from && isSlotOccupied(room.id, b.selectedRange.from, TIME_OPTIONS[i - 1]));
+      if (prevSlotOccupied) hitOccupied = true;
+      options.push({ time, disabled: hitOccupied });
+    }
+    return options;
+  };
+  const draftEndOptions = draftStartTime ? getDraftEndOptions(draftStartTime) : [];
+
+  const hasIncompleteItems = bookings.some(b => !b.startTime || !b.endTime)
+  const canConfirm = bookings.length > 0 && !hasIncompleteItems
 
   const roomImages = room.images && room.images.length > 0 ? room.images : [room.image]
 
@@ -197,10 +228,19 @@ export function BookingCalendar({
     ...getSundaysInMonth(addMonths(leftMonth, 2).getFullYear(), addMonths(leftMonth, 2).getMonth()), // Month after next
   ]
 
-  // Get month name for subtitle
-  const currentMonthName = today.toLocaleDateString("pt-BR", { month: "long" })
-  const capitalizedMonth =
-    currentMonthName.charAt(0).toUpperCase() + currentMonthName.slice(1)
+  const isDateFullyBooked = (date: Date) => {
+    const key = getDateKey(date);
+    const occupied = OCCUPIED_SLOTS[room.id]?.[key];
+    if (!occupied) return false;
+    // Um dia está 100% ocupado se todos os horários de início estiverem no array de ocupados
+    return TIME_OPTIONS.slice(0, -1).every(t => occupied.includes(t));
+  };
+
+  const disabledDates = [
+    { before: new Date(new Date().setHours(0, 0, 0, 0)) },
+    ...unavailableDates,
+    isDateFullyBooked
+  ];
 
   const handlePrevImage = () => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
@@ -210,80 +250,61 @@ export function BookingCalendar({
     setCarouselIndex((prev) => (prev === roomImages.length - 1 ? 0 : prev + 1))
   }
 
+  const handleDefineTime = () => {
+    onApplyDefaultTime(draftStartTime, draftEndTime)
+  }
+
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-2">
       {/* Header - Title and Subtitle */}
       <div>
-        <h3 className="text-lg font-bold italic text-foreground">
-          {"Sele\u00e7\u00e3o de Sala e Data"}
+        <h3 className="text-lg font-bold text-[#384050]">
+          {"Sele\u00e7\u00e3o de data e hora"}
         </h3>
-        <p className="text-sm text-muted-foreground">
-          Local: {room.name} - Disponibilidade para {capitalizedMonth}{" "}
-          {today.getFullYear()}
-        </p>
       </div>
 
       {/* Main Content: Calendars and Right Side (aligned) */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-6 lg:items-start">
+      <div className="flex flex-col gap-6 2xl:flex-row 2xl:gap-6 2xl:items-start">
         {/* Left side: Calendars */}
         <div className="flex-1">
-        <div className="rounded-lg border bg-card p-3 flex flex-col gap-4 md:flex-row md:gap-2">
+        <div className="rounded-lg border bg-card px-8 py-6 flex flex-wrap justify-center gap-6 xl:justify-between">
             <div className="flex-1 flex justify-center">
               <Calendar
-                mode="range"
-                selected={
-                  selectedRange.from
-                    ? { from: selectedRange.from, to: selectedRange.to }
-                    : undefined
-                }
-                onSelect={(range) => {
-                  if (!range) {
-                    onSelectRange({})
-                  } else if (Array.isArray(range)) {
-                    onSelectRange({ from: range[0], to: range[1] })
-                  } else if (range instanceof Date) {
-                    onSelectRange({ from: range })
-                  } else {
-                    onSelectRange({ from: range.from, to: range.to })
-                  }
-                }}
+                key={`left-${selectionKey}`}
+                mode="multiple"
+                selected={bookings.map(b => b.selectedRange.from).filter(Boolean) as Date[]}
+                onDayClick={onDaySelect}
                 locale={ptBR}
                 month={leftMonth}
                 onMonthChange={setLeftMonth}
-                disabled={[{ before: new Date() }, ...unavailableDates]}
+                disabled={disabledDates}
+                modifiersClassNames={{
+                  disabled: "bg-muted text-muted-foreground !opacity-100 rounded-md"
+                }}
                 className="mx-auto"
               />
             </div>
             <div className="flex-1 flex justify-center">
               <Calendar
-                mode="range"
-                selected={
-                  selectedRange.from
-                    ? { from: selectedRange.from, to: selectedRange.to }
-                    : undefined
-                }
-                onSelect={(range) => {
-                  if (!range) {
-                    onSelectRange({})
-                  } else if (Array.isArray(range)) {
-                    onSelectRange({ from: range[0], to: range[1] })
-                  } else if (range instanceof Date) {
-                    onSelectRange({ from: range })
-                  } else {
-                    onSelectRange({ from: range.from, to: range.to })
-                  }
-                }}
+                key={`right-${selectionKey}`}
+                mode="multiple"
+                selected={bookings.map(b => b.selectedRange.from).filter(Boolean) as Date[]}
+                onDayClick={onDaySelect}
                 locale={ptBR}
                 month={addMonths(leftMonth, 1)}
-                disabled={[{ before: new Date() }, ...unavailableDates]}
+                onMonthChange={(month) => setLeftMonth(addMonths(month, -1))}
+                disabled={disabledDates}
+                modifiersClassNames={{
+                  disabled: "bg-muted text-muted-foreground !opacity-100 rounded-md"
+                }}
                 className="mx-auto"
               />
             </div>
           </div>
         {/* Legend area below calendars moved inside left side */}
-        <div className="mt-2 border rounded-lg bg-card p-4 text-sm text-muted-foreground">
+        <div className="mt-2 border rounded-lg bg-card px-8 py-6 text-sm text-muted-foreground">
           {/* amenities icons */}
-          <div className="flex items-center gap-6 mb-3">
+          <div className="flex items-center gap-6 pb-3 mb-3 border-b">
             <div className="flex items-center gap-1.5">
               <Users className="size-4" />
               <span>Capacidade: {room.capacity}</span>
@@ -315,31 +336,34 @@ export function BookingCalendar({
               <span className="block w-3 h-3 rounded-full bg-muted"></span>
               <span>Indisponível</span>
             </div>
-            <div className="ml-auto">
-              <span className="font-medium">Regra:</span> Reservas com antecedência mínima de 24 horas
+            <div className="ml-auto pl-6 border-l">
+              Reservas com antecedência mínima de 24 horas
             </div>
           </div>
         </div>
         </div>
 
         {/* Right side: Image Carousel + Booking Summary */}
-        <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4">
+        <div className="w-full 2xl:w-[320px] shrink-0 flex flex-col gap-4">
         {/* Image Carousel */}
         <div className="relative aspect-video w-full overflow-hidden rounded-lg group">
           <Image
             src={roomImages[carouselIndex]}
             alt={`${room.name} - Foto ${carouselIndex + 1}`}
             fill
-            className="object-cover transition-opacity duration-300 cursor-pointer"
+            className="object-cover cursor-pointer"
             sizes="320px"
             onClick={() => setIsLightboxOpen(true)}
           />
           {roomImages.length > 1 && (
-            <>
+            <div className="absolute inset-0 flex items-center justify-between p-2 pointer-events-none">
               {/* Previous button */}
               <button
-                onClick={handlePrevImage}
-                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handlePrevImage()
+                }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background pointer-events-auto cursor-pointer"
                 aria-label="Imagem anterior"
               >
                 <ChevronLeft className="size-5" />
@@ -347,14 +371,20 @@ export function BookingCalendar({
 
               {/* Next button */}
               <button
-                onClick={handleNextImage}
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md opacity-0 transition-opacity group-hover:opacity-100 hover:bg-background"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleNextImage()
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-8 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background pointer-events-auto cursor-pointer"
                 aria-label="Pr\u00f3xima imagem"
               >
                 <ChevronRight className="size-5" />
               </button>
+            </div>
+          )}
 
-              {/* Dot indicators */}
+              {/* Dot indicators (Bottom) */}
+              {roomImages.length > 1 && (
               <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
                 {roomImages.map((_, idx) => (
                   <button
@@ -370,203 +400,288 @@ export function BookingCalendar({
                   />
                 ))}
               </div>
+              )}
 
-              {/* Counter */}
-              <div className="absolute top-2 right-2 rounded-full bg-background/80 px-2 py-0.5 text-xs font-medium text-foreground">
-                {carouselIndex + 1}/{roomImages.length}
-              </div>
-            </>
-          )}
+              {/* Counter (Top Right) */}
+              {roomImages.length > 1 && (
+                <div className="absolute top-2 right-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                  {carouselIndex + 1}/{roomImages.length}
+                </div>
+              )}
         </div>
 
         {/* Lightbox dialog */}
         <Dialog open={isLightboxOpen} onOpenChange={setIsLightboxOpen}>
-          <DialogContent className="max-w-3xl p-0 bg-transparent">
+          <DialogContent 
+            className="max-w-[90vw] h-[85vh] md:max-w-6xl p-0 border-none bg-white shadow-xl overflow-hidden flex flex-col ring-0 focus:outline-none focus-visible:outline-none rounded-xl"
+            onInteractOutside={(e) => {
+              const target = e.target as Element;
+              if (target?.closest?.('#whatsapp-button')) {
+                e.preventDefault();
+              }
+            }}
+          >
             <DialogTitle className="sr-only">
               Galeria de imagens - {room.name}
             </DialogTitle>
-            <div className="relative w-full h-[60vh]">
+            
+            <div className="relative flex-1 w-full flex items-center justify-center bg-gray-50/50 group overflow-hidden">
+              {/* Close Button - Custom Custom styled for better visibility */}
+              <button
+                onClick={() => setIsLightboxOpen(false)}
+                className="absolute top-4 right-4 z-50 p-2 rounded-full bg-white/80 text-gray-500 hover:bg-white hover:text-gray-900 transition-all shadow-sm"
+              >
+                <X className="size-6" />
+              </button>
+
+              {/* Main Image */}
               <Image
+                key={carouselIndex} // Force re-render for animation
                 src={roomImages[carouselIndex]}
                 alt={`${room.name} - Foto ${carouselIndex + 1}`}
                 fill
                 className="object-contain"
                 sizes="100vw"
+                priority
               />
+              
+              {/* Navigation Controls */}
+              {roomImages.length > 1 && (
+                <>
               <button
                 onClick={handlePrevImage}
-                className="absolute left-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background"
+                className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
                 aria-label="Imagem anterior"
               >
                 <ChevronLeft className="size-6" />
               </button>
               <button
                 onClick={handleNextImage}
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex size-10 items-center justify-center rounded-full bg-background/80 text-foreground shadow-md hover:bg-background"
+                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
                 aria-label="Próxima imagem"
               >
                 <ChevronRight className="size-6" />
               </button>
+                </>
+              )}
+            </div>
 
-              {/* Dot indicators */}
-              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
-                {roomImages.map((_, idx) => (
+            {/* Thumbnails Strip */}
+            {roomImages.length > 1 && (
+              <div className="h-24 shrink-0 w-full bg-white border-t p-4 flex items-center justify-center gap-3 overflow-x-auto">
+                {roomImages.map((img, idx) => (
                   <button
                     key={idx}
                     onClick={() => setCarouselIndex(idx)}
                     className={cn(
-                      "size-2 rounded-full transition-all",
+                      "relative h-full aspect-[4/3] overflow-hidden rounded-md border-2 transition-all",
                       idx === carouselIndex
-                        ? "bg-background w-4"
-                        : "bg-background/60 hover:bg-background/80"
+                        ? "border-primary ring-2 ring-primary/20 opacity-100"
+                        : "border-transparent opacity-50 hover:opacity-100 hover:border-gray-200"
                     )}
-                    aria-label={`Ir para imagem ${idx + 1}`}
-                  />
+                  >
+                    <Image
+                      src={img}
+                      alt={`Miniatura ${idx + 1}`}
+                      fill
+                      className="object-cover"
+                    />
+                  </button>
                 ))}
               </div>
-
-              {/* Counter */}
-              <div className="absolute top-2 right-2 rounded-full bg-background/80 px-2 py-0.5 text-xs font-medium text-foreground">
-                {carouselIndex + 1}/{roomImages.length}
-              </div>
-            </div>
+            )}
           </DialogContent>
         </Dialog>
 
         {/* Booking Summary */}
-        <div className="flex flex-col gap-3">
-          <h4 className="text-lg font-bold text-foreground">
+        <div className="flex flex-col gap-2">
+          <h4 className="text-lg font-bold text-[#384050]">
             Resumo da Reserva
           </h4>
 
-          {selectedRange.from ? (
-            <>
-              <div className="flex flex-col gap-1 text-sm">
-                <p>
-                  <span className="font-semibold">Data:</span>{" "}
-                  {selectedRange.from
-                    ? selectedRange.to
-                      ? `${selectedRange.from.toLocaleDateString("pt-BR", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })} – ${selectedRange.to.toLocaleDateString("pt-BR", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })}`
-                      : selectedRange.from.toLocaleDateString("pt-BR", {
-                          weekday: "long",
-                          day: "numeric",
-                          month: "long",
-                          year: "numeric",
-                        })
-                    : "Nenhuma data selecionada"}
-                </p>
-                <p>
-                  <span className="font-semibold">Sala:</span> {room.name}
-                </p>
-              </div>
-
-              {/* Time selectors */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="start-time"
-                    className="text-xs font-medium text-muted-foreground"
+          {/* Default Time Selector Box */}
+          {(!startTime || !endTime) && (
+          <div className="rounded-lg border bg-card p-3 shadow-sm">
+            <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Definir Horário
+            </h5>
+            <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="relative">
+                  <select
+                    value={draftStartTime}
+                    onChange={(e) => {
+                      setDraftStartTime(e.target.value)
+                      setDraftEndTime("")
+                    }}
+                    disabled={bookings.length === 0}
+                    className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {"In\u00edcio"}
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="start-time"
-                      value={startTime}
-                      onChange={(e) => {
-                        onStartTimeChange(e.target.value)
-                        onEndTimeChange("")
-                      }}
-                      className={cn(
-                        "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
-                        !startTime && "text-muted-foreground"
-                      )}
-                    >
-                      <option value="">Selecionar</option>
-                      {TIME_OPTIONS.slice(0, -1).map((time) => (
-                        <option key={time} value={time}>
-                          {time}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  </div>
+                    <option value="">Início</option>
+                    {draftStartOptions.map((opt) => (
+                      <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
                 </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <label
-                    htmlFor="end-time"
-                    className="text-xs font-medium text-muted-foreground"
+                <div className="relative">
+                  <select
+                    value={draftEndTime}
+                    onChange={(e) => setDraftEndTime(e.target.value)}
+                    disabled={bookings.length === 0 || !draftStartTime}
+                    className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    {"T\u00e9rmino"}
-                  </label>
-                  <div className="relative">
-                    <select
-                      id="end-time"
-                      value={endTime}
-                      onChange={(e) => onEndTimeChange(e.target.value)}
-                      disabled={!startTime}
-                      className={cn(
-                        "w-full appearance-none rounded-lg border bg-card px-3 py-2.5 pr-8 text-sm font-medium text-foreground transition-colors",
-                        "focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary",
-                        "disabled:cursor-not-allowed disabled:opacity-50",
-                        !endTime && "text-muted-foreground"
-                      )}
-                    >
-                      <option value="">Selecionar</option>
-                      {endOptions.map((time) => (
-                        <option key={time} value={time}>
-                          {time}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                  </div>
+                    <option value="">Término</option>
+                    {draftEndOptions.map((opt) => (
+                      <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
                 </div>
               </div>
+              <button
+                onClick={handleDefineTime}
+                disabled={bookings.length === 0 || !draftStartTime || !draftEndTime}
+                className={cn(
+                  "w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 cursor-pointer",
+                  "disabled:opacity-50 disabled:cursor-not-allowed"
+                )}
+              >
+                Definir Horário
+              </button>
+            </div>
+          </div>
+          )}
+
+          {/* List of Added Bookings */}
+          {bookings.length > 0 && startTime && endTime && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Itens Adicionados</span>
+              {bookings.map((item) => {
+                const isUnsaved = unsavedIds.includes(item.id)
+                
+                const itemStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
+                  const occupied = item.selectedRange.from && isSlotOccupied(room.id, item.selectedRange.from, time);
+                  return { time, disabled: !!occupied };
+                });
+                
+                const getItemEndOptions = (start: string) => {
+                  const startIdx = TIME_OPTIONS.indexOf(start);
+                  if (startIdx === -1) return [];
+                  const options = [];
+                  let hitOccupied = false;
+                  for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
+                    const time = TIME_OPTIONS[i];
+                    if (item.selectedRange.from && isSlotOccupied(room.id, item.selectedRange.from, TIME_OPTIONS[i - 1])) {
+                      hitOccupied = true;
+                    }
+                    options.push({ time, disabled: hitOccupied });
+                  }
+                  return options;
+                };
+                const itemEndOptions = item.startTime ? getItemEndOptions(item.startTime) : [];
+
+                return (
+                <div 
+                  key={item.id} 
+                  className="flex flex-col gap-2 p-3 rounded-lg border text-sm transition-colors bg-card border-border shadow-sm"
+                >
+                  <div className="flex items-start justify-between">
+                  <div className="flex flex-col gap-1">
+                    <span className="font-medium">
+                      {item.selectedRange.from?.toLocaleDateString("pt-BR")}
+                    </span>
+                    <span className="font-semibold text-primary">
+                      R$ {item.price.toFixed(2).replace(".", ",")}
+                    </span>
+                  </div>
+                  
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() => onRemoveBooking(item.id)}
+                      className="p-1.5 hover:bg-red-100 cursor-pointer rounded-md text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                      title="Remover"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                  </div>
+
+                    <div className="flex flex-col gap-2 pt-2 border-t">
+                      <div className="grid grid-cols-2 gap-2">
+                        <select
+                          value={item.startTime}
+                          onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "" })}
+                          className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm"
+                        >
+                          <option value="">Início</option>
+                          {itemStartOptions.map((opt) => (
+                            <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                          ))}
+                        </select>
+                        <select
+                          value={item.endTime}
+                          onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value })}
+                          disabled={!item.startTime}
+                          className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm disabled:opacity-50"
+                        >
+                          <option value="">Término</option>
+                          {itemEndOptions.map((opt) => (
+                            <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {isUnsaved && (
+                      <button
+                        onClick={() => onSaveBooking(item.id)}
+                        disabled={!item.startTime || !item.endTime}
+                        className={cn(
+                          "mt-2 flex items-center justify-center cursor-pointer gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                          "disabled:opacity-50 disabled:cursor-not-allowed"
+                        )}
+                      >
+                        <Save className="size-3" />
+                        Salvar Horário
+                      </button>
+                      )}
+                    </div>
+                </div>
+                )
+              })}
+            </div>
+          )}
 
               {/* Estimated Price */}
-              {startTime && endTime && (
-                <div className="mt-2">
-                  <p className="text-lg font-bold text-foreground">
-                    Valor Estimado:{" "}
-                    <span className="text-foreground">
-                      R${" "}
-                      {priceData.finalPrice.toFixed(2).replace(".", ",")}
-                    </span>
+              {(totalPrice > 0) && startTime && endTime && (
+                <div className="flex flex-col gap-1.5 rounded-lg border bg-slate-50 p-4 shadow-sm">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm font-semibold text-[#384050]">Valor para Não Associado</span>
+                    <span className="text-base font-bold text-[#384050]">R$ {totalPrice.toFixed(2).replace(".", ",")}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-primary">
+                <span className="text-sm font-bold">Valor para Associado</span>
+                <span className="text-base font-bold">R$ {(totalPrice * 0.9).toFixed(2).replace(".", ",")}</span>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    * Para associados, o desconto pode chegar até 30%.
                   </p>
                 </div>
               )}
 
               {/* Confirm Button */}
+              {bookings.length > 0 && startTime && endTime && (
               <button
                 onClick={onConfirm}
                 disabled={!canConfirm}
                 className={cn(
-                  "mt-2 w-full rounded-lg border-2 border-foreground px-6 py-3 text-base font-semibold text-foreground transition-colors",
-                  "hover:bg-foreground hover:text-background",
+                  "mt-2 w-full rounded-lg border-2 cursor-pointer border-[#384050] px-6 py-3 text-base font-semibold text-[#384050] transition-colors",
+                  "hover:bg-[#384050] hover:text-background",
                   "disabled:cursor-not-allowed disabled:opacity-40"
                 )}
               >
-                Confirmar e Reservar
+                Adicionar sala
               </button>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Selecione uma ou mais datas no calendário para ver o resumo.
-            </p>
-          )}
+              )}
         </div>
       </div>
       </div>

@@ -42,8 +42,14 @@ export function getPriceForTimeSlot(
     )
 
     if (!period) {
-      // No period covers this hour - shouldn't happen if configured correctly
-      return 0
+      // Se não houver período configurado (ex: soma das horas mínimas ultrapassa o expediente)
+      // utilizamos o preço do primeiro período disponível no dia como fallback base.
+      const fallbackPrice = periods.length > 0 ? periods[0].price : 0
+      const nextBoundaryMinutes = Math.min(endMinutes, (currentHour + 1) * 60)
+      const minutesInThisPeriod = nextBoundaryMinutes - currentMinutes
+      totalPrice += (minutesInThisPeriod / 60) * fallbackPrice
+      currentMinutes = nextBoundaryMinutes
+      continue
     }
 
     // Calculate how many minutes we can use in this period
@@ -98,18 +104,16 @@ export function calculateRoomPrice(
     const isSaturday = d.getDay() === 6
     const minHours = isSaturday ? room.minHoursSaturday : room.minHoursWeekday
 
-    let finalBookedMinutes = bookedMinutes
+    if (bookedHours <= 0) return 0
+
+    const actualPrice = getPriceForTimeSlot(room, d, startTime, endTime)
+
     if (bookedHours < minHours) {
-      finalBookedMinutes = minHours * 60
+      const hourlyRate = actualPrice / bookedHours
+      return hourlyRate * minHours
     }
 
-    const finalEndMinutes = sh * 60 + sm + finalBookedMinutes
-    const finalEndHour = Math.floor(finalEndMinutes / 60)
-    const finalEndMin = finalEndMinutes % 60
-    const finalEndTime = `${String(finalEndHour).padStart(2, "0")}:
-${String(finalEndMin).padStart(2, "0")}`
-
-    return getPriceForTimeSlot(room, d, startTime, finalEndTime)
+    return actualPrice
   }
 
   let basePrice = 0
@@ -146,4 +150,36 @@ ${String(finalEndMin).padStart(2, "0")}`
     finalPrice,
     appliedMinimumHours,
   }
+}
+
+export function isValidCNPJ(cnpj: string): boolean {
+  cnpj = cnpj.replace(/[^\d]+/g, '');
+  if (cnpj.length !== 14) return false;
+  if (/^(\d)\1+$/.test(cnpj)) return false; // Verifica sequências como 00000000000000
+
+  let tamanho = cnpj.length - 2;
+  let numeros = cnpj.substring(0, tamanho);
+  const digitos = cnpj.substring(tamanho);
+  let soma = 0;
+  let pos = tamanho - 7;
+
+  for (let i = tamanho; i >= 1; i--) {
+    soma += parseInt(numeros.charAt(tamanho - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  let resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+  if (resultado !== parseInt(digitos.charAt(0))) return false;
+
+  tamanho = tamanho + 1;
+  numeros = cnpj.substring(0, tamanho);
+  soma = 0;
+  pos = tamanho - 7;
+  for (let i = tamanho; i >= 1; i--) {
+    soma += parseInt(numeros.charAt(tamanho - i)) * pos--;
+    if (pos < 2) pos = 9;
+  }
+  resultado = soma % 11 < 2 ? 0 : 11 - (soma % 11);
+  if (resultado !== parseInt(digitos.charAt(1))) return false;
+
+  return true;
 }
