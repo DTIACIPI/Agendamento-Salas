@@ -1,5 +1,6 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import Image from "next/image"
 import { Users, CheckCircle2 } from "lucide-react"
 import { Card } from "@/components/ui/card"
@@ -17,246 +18,94 @@ export interface Room {
   description: string
   capacity: number
   image: string
-  images: string[]
+  images?: string[]
   amenities: string[]
-  infrastructure: string[]
+  infrastructure?: string[]
   minHoursWeekday: number // Segunda a sexta
-  minHoursSaturday: number // Sábado
+  minHoursSaturday?: number // Sábado
   pricePeriodsWeekday: PricePeriod[] // Segunda a sexta
-  pricePeriodsSaturday: PricePeriod[] // Sábado
+  pricePeriodsSaturday?: PricePeriod[] // Sábado
   available: boolean
 }
-
-export const ROOMS: Room[] = [
-  {
-    id: "sala",
-    name: "Sala",
-    description: "Espaço versátil para reuniões e pequenos eventos. Capacidade: 40 pessoas.",
-    capacity: 40,
-    image: "/images/SALA 02/Sala 02 (1).JPG",
-    images: [
-      "/images/SALA 02/Sala 02 (1).JPG",
-      "/images/SALA 02/Sala 02 (2).JPG",
-      "/images/SALA 02/Sala 02 (3).JPG",
-      "/images/SALA 02/Sala 02 (4).JPG",
-    ],
-    amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
-    infrastructure: [
-      "Cadeiras e mesas",
-      "Ar-condicionado",
-      "2 caixas de som",
-      "1 microfone com fio",
-      "Quadro branco",
-      "1 tela para projeção",
-      "1 projetor marca Epson",
-      "1 mesa para café",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 120 }],
-    pricePeriodsSaturday: [{ startHour: 8, endHour: 13, price: 192 }],
-    available: true,
-  },
-  {
-    id: "auditorio",
-    name: "Auditório",
-    description: "Espaço amplo com palco e equipamentos audiovisuais. Capacidade: 199 pessoas.",
-    capacity: 199,
-    image: "/images/AUDITÓRIO/Auditório (1).jpg",
-    images: [
-      "/images/AUDITÓRIO/Auditório (1).jpg",
-      "/images/AUDITÓRIO/Auditório (2).jpg",
-      "/images/AUDITÓRIO/Auditório (3).JPG",
-      "/images/AUDITÓRIO/Auditório (4).jpg",
-      "/images/AUDITÓRIO/Auditório (5).jpg",
-      "/images/AUDITÓRIO/Auditório (7).jpg",
-      "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
-    ],
-    amenities: ["Ar-condicionado", "Projetor", "Palco", "Microfone"],
-    infrastructure: [
-      "Poltronas individuais",
-      "Palco com 2 caixas de retorno",
-      "Ar-condicionado",
-      "1 tela para projeção de 187\"",
-      "2 telas para projeção de 138\"",
-      "3 projetores",
-      "1 mesa para equipamentos",
-      "1 cadeira tipo secretária",
-      "1 púlpito",
-      "1 microfone",
-      "3 mesas de madeira para composição de mesa",
-      "10 cadeiras tipo executiva",
-      "1 porta-bandeira com as bandeiras nacional, estadual e municipal",
-      "2 mesas para apoio",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 925 }],
-    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 1480 }],
-    available: true,
-  },
-  {
-    id: "auditorio-foyer",
-    name: "Auditório + Foyer",
-    description: "Auditório com acesso ao Foyer. Capacidade: 199 pessoas.",
-    capacity: 199,
-    image: "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
-    images: [
-      "/images/AUDITÓRIO/FOTO AUDITORIO ACIPI.png",
-      "/images/AUDITÓRIO/Auditório (1).jpg",
-      "/images/AUDITÓRIO/Auditório (2).jpg",
-      "/images/AUDITÓRIO/Auditório (3).JPG",
-      "/images/AUDITÓRIO/Auditório (4).jpg",
-      "/images/AUDITÓRIO/Auditório (5).jpg",
-      "/images/AUDITÓRIO/Auditório (7).jpg",
-      "/images/FOYER/Foyer (1).JPG",
-      "/images/FOYER/Foyer (2).JPG",
-      "/images/FOYER/Foyer (3).JPG",
-      "/images/FOYER/Foyer (4).JPG",
-      "/images/FOYER/Foyer (5).JPG",
-      "/images/FOYER/Foyer (6).JPG",
-    ],
-    amenities: ["Ar-condicionado", "Projetor", "Palco", "Cozinha"],
-    infrastructure: [
-      "Poltronas individuais",
-      "Palco com 2 caixas de retorno",
-      "Ar-condicionado",
-      "1 tela para projeção de 187\"",
-      "2 telas para projeção de 138\"",
-      "3 projetores",
-      "1 mesa para equipamentos",
-      "1 cadeira tipo secretária",
-      "1 púlpito",
-      "1 microfone",
-      "3 mesas de madeira para composição de mesa",
-      "10 cadeiras tipo executiva",
-      "1 porta-bandeira com as bandeiras nacional, estadual e municipal",
-      "2 mesas para apoio",
-      "2 mesas medindo L 1,10 x C 3,00",
-      "3 mesas medindo L 0,80 x C 1,40",
-      "1 bebedouro",
-      "Cozinha com geladeira, fogão de 4 bocas industrial, coifa",
-      "2 mesas medindo L 0,80 x C 1,20",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 1155 }],
-    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 1848 }],
-    available: true,
-  },
-  {
-    id: "foyer",
-    name: "Foyer",
-    description: "Espaço para recepção com cozinha. Capacidade: 199 pessoas.",
-    capacity: 199,
-    image: "/images/FOYER/Foyer (1).JPG",
-    images: [
-      "/images/FOYER/Foyer (1).JPG",
-      "/images/FOYER/Foyer (2).JPG",
-      "/images/FOYER/Foyer (3).JPG",
-      "/images/FOYER/Foyer (4).JPG",
-      "/images/FOYER/Foyer (5).JPG",
-      "/images/FOYER/Foyer (6).JPG",
-    ],
-    amenities: ["Ar-condicionado", "Cozinha", "Bebedouro"],
-    infrastructure: [
-      "2 mesas medindo L 1,10 x C 3,00",
-      "3 mesas medindo L 0,80 x C 1,40",
-      "1 bebedouro",
-      "Ar-condicionado",
-      "Cozinha com geladeira, fogão de 4 bocas industrial, coifa",
-      "2 mesas medindo L 0,80 x C 1,20",
-      "2 mesas plásticas medindo L 0,85 x C 1,37",
-      "2 ventiladores",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [{ startHour: 8, endHour: 22, price: 337.5 }],
-    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 540 }],
-    available: true,
-  },
-  {
-    id: "miniauditorio",
-    name: "Miniauditório",
-    description: "Sala de eventos menor com equipamentos audiovisuais. Capacidade: 74 pessoas.",
-    capacity: 74,
-    image: "/images/MINIAUDITÓRIO/Miniauditório (1).jpg",
-    images: [
-      "/images/MINIAUDITÓRIO/Miniauditório (1).jpg",
-      "/images/MINIAUDITÓRIO/Miniauditório (2).jpg",
-      "/images/MINIAUDITÓRIO/Miniauditório (3).jpg",
-      "/images/MINIAUDITÓRIO/Miniauditório (4).jpg",
-      "/images/MINIAUDITÓRIO/Miniauditório (5).jpg",
-      "/images/MINIAUDITÓRIO/Miniauditório (6).jpg",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (1).JPG",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (2).JPG",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (3).JPG",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (4).JPG",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (5).JPG",
-      "/images/MINIAUDITÓRIO/Hall Miniauditório (6).JPG",
-    ],
-    amenities: ["Ar-condicionado", "Projetor", "Microfone"],
-    infrastructure: [
-      "Poltronas individuais",
-      "Ar-condicionado",
-      "Caixa de som",
-      "Quadro branco",
-      "1 tela para projeção",
-      "1 projetor",
-      "1 microfone sem fio",
-      "2 mesas",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [
-      { startHour: 8, endHour: 18, price: 175 },
-      { startHour: 18, endHour: 22, price: 200 },
-    ],
-    pricePeriodsSaturday: [{ startHour: 8, endHour: 17, price: 280 }],
-    available: true,
-  },
-  {
-    id: "regional-sta-terezinha",
-    name: "Regional Sta. Terezinha",
-    description: "Sala de treinamento compacta. Capacidade: 20 pessoas.",
-    capacity: 20,
-    image: "/images/REGIONAL/Escritório Regional (1).jpg",
-    images: [
-      "/images/REGIONAL/Escritório Regional (1).jpg",
-      "/images/REGIONAL/Escritório Regional (2).jpg",
-      "/images/REGIONAL/Escritório Regional (3).jpg",
-      "/images/REGIONAL/Escritório Regional (4).jpg",
-      "/images/REGIONAL/Escritório Regional (5).jpg",
-      "/images/REGIONAL/Escritório Regional (6).jpg",
-      "/images/REGIONAL/Escritório Regional (Fachada).jpg",
-    ],
-    amenities: ["Ar-condicionado", "Projetor", "Quadro branco"],
-    infrastructure: [
-      "Cadeiras universitárias",
-      "Ar-condicionado",
-      "1 caixa de som",
-      "1 tela para projeção",
-      "1 projetor",
-      "2 mesas",
-    ],
-    minHoursWeekday: 4,
-    minHoursSaturday: 5,
-    pricePeriodsWeekday: [{ startHour: 8, endHour: 18, price: 57.5 }],
-    pricePeriodsSaturday: [], // Sábado não realiza locação
-    available: true,
-  },
-]
 
 interface RoomListProps {
   selectedRoomId: string | null
   onSelectRoom: (room: Room) => void
+  onLoadedSpaces?: (spaces: Room[]) => void
 }
 
-export function RoomList({ selectedRoomId, onSelectRoom }: RoomListProps) {
+export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomListProps) {
+  const [spaces, setSpaces] = useState<Room[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchSpaces = async () => {
+      try {
+        setIsLoading(true)
+        const response = await fetch('https://acipiapi.eastus.cloudapp.azure.com/webhook/api/spaces?page=1&limit=10')
+        
+        if (!response.ok) {
+          throw new Error('Falha ao carregar os dados do servidor.')
+        }
+        
+        const data = await response.json()
+        console.log("Resposta bruta da API (RoomList):", data)
+        
+        // Garante que vai pegar a lista de salas, não importa o formato que o webhook retorne
+        // Extrai o array de salas da estrutura aninhada `[ { data: [...] } ]` retornada pela API.
+        const rawArray = Array.isArray(data) && data.length > 0 && Array.isArray(data[0].data)
+          ? data[0].data
+          : [];
+        
+        const spacesData: Room[] = rawArray.map((apiRoom: any) => {
+          return {
+            id: apiRoom.id,
+            name: apiRoom.name,
+            description: apiRoom.description,
+            capacity: apiRoom.capacity,
+            image: apiRoom.image,
+            images: Array.isArray(apiRoom.images) ? apiRoom.images : (apiRoom.image ? [apiRoom.image] : []),
+            amenities: Array.isArray(apiRoom.amenities) ? apiRoom.amenities : [],
+            minHoursWeekday: apiRoom.minHoursWeekday,
+            minHoursSaturday: apiRoom.minHoursSaturday,
+            pricePeriodsWeekday: Array.isArray(apiRoom.pricePeriodsWeekday) ? apiRoom.pricePeriodsWeekday : [],
+            pricePeriodsSaturday: Array.isArray(apiRoom.pricePeriodsSaturday) ? apiRoom.pricePeriodsSaturday : [],
+            available: apiRoom.available === 1 || apiRoom.available === true,
+          }
+        })
+        setSpaces(spacesData)
+        if (onLoadedSpaces) onLoadedSpaces(spacesData)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Erro desconhecido')
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchSpaces()
+  }, [])
+
+  if (isLoading) {
+    return (
+      <div className="flex h-48 w-full items-center justify-center rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+        <p className="animate-pulse text-sm font-medium text-muted-foreground">Carregando salas...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-48 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 p-6 text-center shadow-sm">
+        <p className="text-sm font-medium text-red-600">{error}</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
-        {ROOMS.map((room) => (
+        {spaces.map((room) => (
           <Card
             key={room.id}
             className={cn(
@@ -308,12 +157,15 @@ export function RoomList({ selectedRoomId, onSelectRoom }: RoomListProps) {
                   {room.description}
                 </p>
 
-                {/* Capacidade */}
-                <div className="mb-3 flex items-center gap-1.5 text-sm font-medium text-[#384050]">
-                  <Users className="size-4 text-gray-500" />
-                  <span>
-                    Capacidade: Até <span className="font-bold">{room.capacity}</span>
-                  </span>
+                {/* Capacidade e Preço */}
+                <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 text-sm font-medium text-[#384050]">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="size-4 text-gray-500" />
+                    <span>
+                      Capacidade: Até <span className="font-bold">{room.capacity}</span>
+                    </span>
+                  </div>
+
                 </div>
 
                 {/* Container de Comodidades */}
@@ -322,10 +174,13 @@ export function RoomList({ selectedRoomId, onSelectRoom }: RoomListProps) {
                     Comodidades
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {room.amenities.map((amenity) => (
+                    {(room.amenities.length > 0 ? room.amenities : ["Wi-Fi", "Projetor", "Ar Condicionado"]).slice(0, 3).map((amenity) => (
                       <span
                         key={amenity}
-                        className="flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap"
+                        className={cn(
+                          "flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap",
+                          room.amenities.length === 0 && "opacity-60"
+                        )}
                       >
                         {amenity}
                       </span>

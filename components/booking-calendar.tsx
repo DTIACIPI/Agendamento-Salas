@@ -1,6 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
+import type { OccupiedSlot } from "@/app/page"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
@@ -17,6 +18,8 @@ import {
   Edit2,
   Save,
   X,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -37,89 +40,56 @@ function generateTimeOptions(): string[] {
 
 export const TIME_OPTIONS = generateTimeOptions()
 
-// Function to get all Sundays in a given month
-function getSundaysInMonth(year: number, month: number): Date[] {
-  const sundays: Date[] = []
-  const date = new Date(year, month, 1)
+const timeToMinutes = (time: string): number => {
+  if (!time) return 0;
+  // Pega estritamente os 5 primeiros caracteres ("12:00:00" vira "12:00")
+  const cleanTime = time.substring(0, 5);
+  const [hours, minutes] = cleanTime.split(':').map(Number);
   
-  // Find the first day of the month and check what day of week it is
-  let current = new Date(year, month, 1)
-  
-  // Find the first Sunday of the month
-  const dayOfWeek = current.getDay()
-  const daysUntilSunday = dayOfWeek === 0 ? 0 : 7 - dayOfWeek
-  current.setDate(1 + daysUntilSunday)
-  
-  // Add all Sundays in the month
-  while (current.getMonth() === month) {
-    sundays.push(new Date(current))
-    current.setDate(current.getDate() + 7)
-  }
-  
-  return sundays
-}
-
-// Simulated unavailable dates (only Sundays)
-const UNAVAILABLE_DATES = [
-  new Date(2026, 2, 1),  // 1º de março - domingo
-  new Date(2026, 2, 8),  // 8 de março - domingo
-  new Date(2026, 2, 15), // 15 de março - domingo
-  new Date(2026, 2, 22), // 22 de março - domingo
-  new Date(2026, 2, 29), // 29 de março - domingo
-]
-
-// Simulated occupied time ranges per room per date key ("YYYY-MM-DD")
-export const OCCUPIED_SLOTS: Record<string, Record<string, string[]>> = {
-  sala: {},
-  auditorio: {
-    "2026-03-19": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"],
-    "2026-03-21": ["08:00", "08:30", "09:00", "09:30", "10:00", "10:30", "11:00", "11:30"],
-  },
-  "auditorio-foyer": {},
-  foyer: {},
-  miniauditorio: {},
-  "regional-sta-terezinha": {},
-}
-
-export { UNAVAILABLE_DATES }
-
-function getDateKey(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-}
+  if (isNaN(hours) || isNaN(minutes)) return 0;
+  return (hours * 60) + minutes;
+};
 
 export function isSlotOccupied(
-  roomId: string,
   date: Date,
-  time: string
+  time: string,
+  occupiedSlots: OccupiedSlot[]
 ): boolean {
-  const key = getDateKey(date)
-  return OCCUPIED_SLOTS[roomId]?.[key]?.includes(time) ?? false
+  if (!date || !time) return false;
+  
+  const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const timeInMinutes = timeToMinutes(time);
+
+  for (const slot of occupiedSlots) {
+    if (slot.date === dateKey) {
+      // Cria a margem de limpeza (30 min antes e 30 min depois)
+      const startInMinutes = timeToMinutes(slot.startTime) - 30;
+      const endInMinutes = timeToMinutes(slot.endTime) + 30;
+      
+      // Bloqueia se o horário cair EXATAMENTE dentro da margem de limpeza.
+      // Usamos "<" (menor estrito) no endInMinutes para que a opção de 12:30 fique perfeitamente LIVRE.
+      if (timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function isRangeAvailable(
-  roomId: string,
-  startDate: Date,
-  endDate: Date,
+  date: Date,
   start: string,
-  end: string
+  end: string,
+  occupiedSlots: OccupiedSlot[]
 ): boolean {
-  const startIdx = TIME_OPTIONS.indexOf(start)
-  const endIdx = TIME_OPTIONS.indexOf(end)
-  if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false
+  const startIdx = TIME_OPTIONS.indexOf(start);
+  const endIdx = TIME_OPTIONS.indexOf(end);
+  if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
 
-  const checkDay = (date: Date) => {
-    for (let i = startIdx; i < endIdx; i++) {
-      if (isSlotOccupied(roomId, date, TIME_OPTIONS[i])) return false
-    }
-    return true
+  for (let i = startIdx; i < endIdx; i++) {
+    if (isSlotOccupied(date, TIME_OPTIONS[i], occupiedSlots)) return false;
   }
-
-  let current = new Date(startDate)
-  while (current <= endDate) {
-    if (!checkDay(current)) return false
-    current.setDate(current.getDate() + 1)
-  }
-  return true
+  return true;
 }
 
 interface BookingCalendarProps {
@@ -154,6 +124,10 @@ interface BookingCalendarProps {
   unsavedIds: string[]
   totalPrice: number
   onApplyDefaultTime: (start: string, end: string) => void
+  onMonthChange: (date: Date) => void;
+  occupiedSlots: OccupiedSlot[];
+  availabilityLoading: boolean;
+  isRoomDetailsLoading?: boolean;
 }
 
 export function BookingCalendar({
@@ -175,6 +149,10 @@ export function BookingCalendar({
   unsavedIds,
   onApplyDefaultTime,
   totalPrice,
+  onMonthChange,
+  occupiedSlots,
+  availabilityLoading,
+  isRoomDetailsLoading,
 }: BookingCalendarProps) {
   const [carouselIndex, setCarouselIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -184,6 +162,35 @@ export function BookingCalendar({
   const today = new Date()
   const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
   const [leftMonth, setLeftMonth] = useState(currentMonth)
+
+  // --- LÓGICA DE PREFETCH E DEBOUNCE (NOVO) ---
+  const isFirstRender = useRef(true);
+  const prevRoomId = useRef(room.id);
+  const onMonthChangeRef = useRef(onMonthChange);
+
+  // Mantém a refência da função atualizada para não dar erro de dependência
+  useEffect(() => {
+    onMonthChangeRef.current = onMonthChange;
+  }, [onMonthChange]);
+
+  useEffect(() => {
+    // Se for o primeiro carregamento ou se mudou de sala: Busca IMEDIATAMENTE (Prefetch)
+    if (isFirstRender.current || prevRoomId.current !== room.id) {
+      onMonthChangeRef.current(leftMonth);
+      isFirstRender.current = false;
+      prevRoomId.current = room.id;
+      return;
+    }
+
+    // Se o usuário apenas navegou nos meses: Espera 500ms antes de buscar (Debounce)
+    const handler = setTimeout(() => {
+      onMonthChangeRef.current(leftMonth);
+    }, 500);
+
+    // Limpa o timeout anterior se o usuário clicar de novo antes de 500ms
+    return () => clearTimeout(handler);
+  }, [leftMonth, room.id]);
+  // ---------------------------------------------
 
   // Cria uma chave a partir dos agendamentos para forçar a nova renderização do calendário na mudança da data da seleção
   const selectionKey = bookings.map((b) => `${b.id}-${b.selectedRange.from?.getTime() || 0}`).join("-")
@@ -196,49 +203,35 @@ export function BookingCalendar({
   }, [room.id, startTime, endTime]) // Sync if parent resets
 
   const draftStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
-    const isOccupiedGlobally = bookings.some(b => b.selectedRange.from && isSlotOccupied(room.id, b.selectedRange.from, time));
-    return { time, disabled: isOccupiedGlobally };
+    return { time, disabled: false };
   });
 
   const getDraftEndOptions = (start: string) => {
     const startIdx = TIME_OPTIONS.indexOf(start);
     if (startIdx === -1) return [];
     const options = [];
-    let hitOccupied = false;
     for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
       const time = TIME_OPTIONS[i];
-      const prevSlotOccupied = bookings.some(b => b.selectedRange.from && isSlotOccupied(room.id, b.selectedRange.from, TIME_OPTIONS[i - 1]));
-      if (prevSlotOccupied) hitOccupied = true;
-      options.push({ time, disabled: hitOccupied });
+      options.push({ time, disabled: false });
     }
     return options;
   };
   const draftEndOptions = draftStartTime ? getDraftEndOptions(draftStartTime) : [];
 
   const hasIncompleteItems = bookings.some(b => !b.startTime || !b.endTime)
-  const canConfirm = bookings.length > 0 && !hasIncompleteItems
+  const hasConflicts = bookings.some(b => b.hasConflict)
+  const canConfirm = bookings.length > 0 && !hasIncompleteItems && !hasConflicts
 
   const roomImages = room.images && room.images.length > 0 ? room.images : [room.image]
 
-  // Calculate unavailable dates (all Sundays) for the displayed months and adjacent months
-  const unavailableDates = [
-    ...getSundaysInMonth(addMonths(leftMonth, -1).getFullYear(), addMonths(leftMonth, -1).getMonth()), // Previous month
-    ...getSundaysInMonth(leftMonth.getFullYear(), leftMonth.getMonth()), // Current month (left calendar)
-    ...getSundaysInMonth(addMonths(leftMonth, 1).getFullYear(), addMonths(leftMonth, 1).getMonth()), // Next month (right calendar)
-    ...getSundaysInMonth(addMonths(leftMonth, 2).getFullYear(), addMonths(leftMonth, 2).getMonth()), // Month after next
-  ]
-
   const isDateFullyBooked = (date: Date) => {
-    const key = getDateKey(date);
-    const occupied = OCCUPIED_SLOTS[room.id]?.[key];
-    if (!occupied) return false;
-    // Um dia está 100% ocupado se todos os horários de início estiverem no array de ocupados
-    return TIME_OPTIONS.slice(0, -1).every(t => occupied.includes(t));
+    // Consider a date fully booked if all time slots are occupied
+    return TIME_OPTIONS.slice(0, -1).every(t => isSlotOccupied(date, t, occupiedSlots));
   };
 
   const disabledDates = [
     { before: new Date(new Date().setHours(0, 0, 0, 0)) },
-    ...unavailableDates,
+    { dayOfWeek: [0] }, // Disable all Sundays
     isDateFullyBooked
   ];
 
@@ -276,7 +269,10 @@ export function BookingCalendar({
                 onDayClick={onDaySelect}
                 locale={ptBR}
                 month={leftMonth}
-                onMonthChange={setLeftMonth}
+                onMonthChange={(month) => {
+                  setLeftMonth(month);
+                  // Disparo direto da API removido daqui para respeitar o debounce
+                }}
                 disabled={disabledDates}
                 modifiersClassNames={{
                   disabled: "bg-muted text-muted-foreground !opacity-100 rounded-md"
@@ -292,7 +288,11 @@ export function BookingCalendar({
                 onDayClick={onDaySelect}
                 locale={ptBR}
                 month={addMonths(leftMonth, 1)}
-                onMonthChange={(month) => setLeftMonth(addMonths(month, -1))}
+                onMonthChange={(month) => {
+                  const newLeftMonth = addMonths(month, -1);
+                  setLeftMonth(newLeftMonth);
+                  // Disparo direto da API removido daqui para respeitar o debounce
+                }}
                 disabled={disabledDates}
                 modifiersClassNames={{
                   disabled: "bg-muted text-muted-foreground !opacity-100 rounded-md"
@@ -301,29 +301,40 @@ export function BookingCalendar({
               />
             </div>
           </div>
-        {/* Legend area below calendars moved inside left side */}
+        {/* Legend area below calendars */}
         <div className="mt-2 border rounded-lg bg-card px-8 py-6 text-sm text-muted-foreground">
-          {/* amenities icons */}
-          <div className="flex items-center gap-6 pb-3 mb-3 border-b">
-            <div className="flex items-center gap-1.5">
-              <Users className="size-4" />
-              <span>Capacidade: {room.capacity}</span>
+          
+          {/* amenities icons DINÂMICOS */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5 pb-3 mb-3 border-b text-[#384050]">
+            
+            {/* Capacidade Fixa Sempre Visível */}
+            <div className="flex items-center gap-1.5 whitespace-nowrap">
+              <Users className="size-4 text-primary" />
+              <span>Capacidade: {room.capacity} pessoas</span>
             </div>
-            {room.amenities.includes("Projetor") && (
-              <div className="flex items-center gap-1.5">
-                <Monitor className="size-4" />
-                <span>Projetor 4K</span>
-              </div>
-            )}
-            {room.amenities.includes("Internet") && (
-              <div className="flex items-center gap-1.5">
-                <Wifi className="size-4" />
-                <span>Internet Dedicada</span>
-              </div>
+
+            {/* Loop das Comodidades do Banco de Dados */}
+            {room.amenities && room.amenities.length > 0 ? (
+              room.amenities.map((amenity, index) => {
+                let Icon = CheckCircle2; 
+                const text = amenity.toLowerCase();
+                if (text.includes("projetor") || text.includes("tela")) Icon = Monitor;
+                else if (text.includes("internet") || text.includes("wi-fi") || text.includes("wifi")) Icon = Wifi;
+                
+                return (
+                  <div key={index} className="flex items-center gap-1.5 whitespace-nowrap">
+                    <Icon className="size-4 text-primary" />
+                    <span>{amenity}</span>
+                  </div>
+                )
+              })
+            ) : (
+              <span className="text-xs italic opacity-60">Nenhuma comodidade extra listada</span>
             )}
           </div>
+
           {/* color legend and rule */}
-          <div className="flex items-center gap-8">
+          <div className="flex flex-wrap items-center gap-6 md:gap-8 pb-4">
             <div className="flex items-center gap-2">
               <span className="block w-3 h-3 rounded-full border"></span>
               <span>Livre</span>
@@ -336,10 +347,23 @@ export function BookingCalendar({
               <span className="block w-3 h-3 rounded-full bg-muted"></span>
               <span>Indisponível</span>
             </div>
-            <div className="ml-auto pl-6 border-l">
+            <div className="ml-auto pl-6 border-l border-border hidden md:block">
               Reservas com antecedência mínima de 24 horas
             </div>
           </div>
+
+          {/* DESCRIÇÃO DA SALA (NOVA SEÇÃO) */}
+          {room.description && (
+            <div className="pt-4 border-t border-border/60">
+              <h5 className="text-xs font-semibold text-[#384050] uppercase tracking-wider mb-1.5">
+                Sobre o Espaço
+              </h5>
+              <p className="text-[13px] leading-relaxed text-muted-foreground/90">
+                {room.description}
+              </p>
+            </div>
+          )}
+
         </div>
         </div>
 
@@ -355,6 +379,13 @@ export function BookingCalendar({
             sizes="320px"
             onClick={() => setIsLightboxOpen(true)}
           />
+
+          {isRoomDetailsLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/10 backdrop-blur-[2px] transition-all duration-300">
+              <Loader2 className="size-8 animate-spin text-white drop-shadow-md" />
+            </div>
+          )}  
+
           {roomImages.length > 1 && (
             <div className="absolute inset-0 flex items-center justify-between p-2 pointer-events-none">
               {/* Previous button */}
@@ -514,7 +545,7 @@ export function BookingCalendar({
                       setDraftStartTime(e.target.value)
                       setDraftEndTime("")
                     }}
-                    disabled={bookings.length === 0}
+                    disabled={bookings.length === 0 || availabilityLoading}
                     className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">Início</option>
@@ -528,7 +559,7 @@ export function BookingCalendar({
                   <select
                     value={draftEndTime}
                     onChange={(e) => setDraftEndTime(e.target.value)}
-                    disabled={bookings.length === 0 || !draftStartTime}
+                    disabled={bookings.length === 0 || !draftStartTime || availabilityLoading}
                     className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     <option value="">Término</option>
@@ -541,13 +572,13 @@ export function BookingCalendar({
               </div>
               <button
                 onClick={handleDefineTime}
-                disabled={bookings.length === 0 || !draftStartTime || !draftEndTime}
+                disabled={bookings.length === 0 || !draftStartTime || !draftEndTime || availabilityLoading}
                 className={cn(
                   "w-full rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 cursor-pointer",
                   "disabled:opacity-50 disabled:cursor-not-allowed"
                 )}
               >
-                Definir Horário
+                {availabilityLoading ? "Verificando..." : "Definir Horário"}
               </button>
             </div>
           </div>
@@ -561,7 +592,7 @@ export function BookingCalendar({
                 const isUnsaved = unsavedIds.includes(item.id)
                 
                 const itemStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
-                  const occupied = item.selectedRange.from && isSlotOccupied(room.id, item.selectedRange.from, time);
+                  const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
                   return { time, disabled: !!occupied };
                 });
                 
@@ -569,13 +600,14 @@ export function BookingCalendar({
                   const startIdx = TIME_OPTIONS.indexOf(start);
                   if (startIdx === -1) return [];
                   const options = [];
-                  let hitOccupied = false;
+                  
                   for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
                     const time = TIME_OPTIONS[i];
-                    if (item.selectedRange.from && isSlotOccupied(room.id, item.selectedRange.from, TIME_OPTIONS[i - 1])) {
-                      hitOccupied = true;
-                    }
-                    options.push({ time, disabled: hitOccupied });
+                    
+                    // Agora validamos apenas se o bloquinho imediatamente anterior a esta opção está ocupado.
+                    const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, TIME_OPTIONS[i - 1], occupiedSlots);
+                    
+                    options.push({ time, disabled: !!isOccupied });
                   }
                   return options;
                 };
@@ -584,15 +616,15 @@ export function BookingCalendar({
                 return (
                 <div 
                   key={item.id} 
-                  className="flex flex-col gap-2 p-3 rounded-lg border text-sm transition-colors bg-card border-border shadow-sm"
+                  className={cn(
+                    "flex flex-col gap-2 p-3 rounded-lg border text-sm transition-colors bg-card shadow-sm",
+                    item.hasConflict ? "border-red-300 bg-red-50/50" : "border-border"
+                  )}
                 >
                   <div className="flex items-start justify-between">
                   <div className="flex flex-col gap-1">
                     <span className="font-medium">
                       {item.selectedRange.from?.toLocaleDateString("pt-BR")}
-                    </span>
-                    <span className="font-semibold text-primary">
-                      R$ {item.price.toFixed(2).replace(".", ",")}
                     </span>
                   </div>
                   
@@ -607,11 +639,18 @@ export function BookingCalendar({
                   </div>
                   </div>
 
+                    {item.hasConflict && (
+                      <span className="text-xs text-red-600 font-medium leading-tight">
+                        O horário selecionado não está disponível.
+                      </span>
+                    )}
+
                     <div className="flex flex-col gap-2 pt-2 border-t">
                       <div className="grid grid-cols-2 gap-2">
                         <select
                           value={item.startTime}
-                          onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "" })}
+                          onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "", hasConflict: false })}
+                          disabled={availabilityLoading}
                           className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm"
                         >
                           <option value="">Início</option>
@@ -621,8 +660,8 @@ export function BookingCalendar({
                         </select>
                         <select
                           value={item.endTime}
-                          onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value })}
-                          disabled={!item.startTime}
+                          onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value, hasConflict: false })}
+                          disabled={!item.startTime || availabilityLoading}
                           className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm disabled:opacity-50"
                         >
                           <option value="">Término</option>

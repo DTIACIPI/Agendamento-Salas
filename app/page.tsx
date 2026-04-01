@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react"
 import { Header } from "@/components/header"
-import { RoomList, ROOMS, type Room } from "@/components/room-list"
+import { RoomList, type Room } from "@/components/room-list"
 import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
 import { CartDialog } from "@/components/cart-dialog"
 import { Card } from "@/components/ui/card"
@@ -16,6 +16,13 @@ export interface BookingItem {
   startTime: string
   endTime: string
   price: number
+  hasConflict?: boolean
+}
+
+export interface OccupiedSlot {
+  date: string; // "YYYY-MM-DD"
+  startTime: string; // "HH:mm"
+  endTime: string; // "HH:mm"
 }
 
 const ReservationProcessCard = () => {
@@ -97,6 +104,11 @@ const ReservationProcessCard = () => {
 
 export default function Home() {
   const calendarRef = useRef<HTMLDivElement>(null)
+  const roomCacheRef = useRef<Record<string, Room>>({})
+  
+  // Memória Cache para não gastar internet a toa
+  const availabilityCacheRef = useRef<Record<string, OccupiedSlot[]>>({});
+
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
   const [selectedRanges, setSelectedRanges] = useState<Record<string, { from?: Date; to?: Date }>>({})
   const [startTimes, setStartTimes] = useState<Record<string, string>>({})
@@ -109,11 +121,114 @@ export default function Home() {
   const [unsavedIds, setUnsavedIds] = useState<string[]>([])
   const [cartRooms, setCartRooms] = useState<string[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
+  const [rooms, setRooms] = useState<Room[]>([])
+  
+  // DICIONÁRIO ISOLADO POR SALA
+  const [occupiedSlotsByRoom, setOccupiedSlotsByRoom] = useState<Record<string, OccupiedSlot[]>>({});
+  
+  const [availabilityLoading, setAvailabilityLoading] = useState(false);
+  const [isRoomDetailsLoading, setIsRoomDetailsLoading] = useState(false);
+  const [viewedMonth, setViewedMonth] = useState(new Date());
 
   const handleSelectRoom = useCallback((room: Room) => {
-    setSelectedRoom((prev) => (prev?.id === room.id ? null : room))
-    // Não limpamos mais os estados globais para permitir seleções independentes
+    setSelectedRoom((prev) => {
+      if (prev?.id === room.id) return null;
+      return roomCacheRef.current[room.id] || room;
+    })
   }, [])
+
+  useEffect(() => {
+    if (!selectedRoom?.id) return;
+    
+    if (selectedRoom.images && selectedRoom.images.length > 1) return;
+
+    const fetchRoomDetails = async () => {
+      setIsRoomDetailsLoading(true);
+      try {
+        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${selectedRoom.id}`;
+        const res = await fetch(apiUrl, { cache: 'no-store' });
+        
+        if (!res.ok) throw new Error("Falha ao buscar dossiê no n8n");
+        
+        const data = await res.json();
+        const detailedRoom = Array.isArray(data) ? data[0] : data;
+        
+        if (detailedRoom && detailedRoom.id) {
+          const enrichedRoom = { ...selectedRoom, ...detailedRoom };
+          roomCacheRef.current[detailedRoom.id] = enrichedRoom;
+
+          setSelectedRoom((prev) => {
+            if (prev?.id !== detailedRoom.id) return prev;
+            return enrichedRoom;
+          });
+
+          setRooms((prev) => prev.map(r => r.id === detailedRoom.id ? enrichedRoom : r));
+        }
+      } catch (error) {
+        console.error("Erro ao carregar o dossiê da sala:", error);
+      } finally {
+        setIsRoomDetailsLoading(false);
+      }
+    };
+
+    fetchRoomDetails();
+  }, [selectedRoom?.id]);
+
+  useEffect(() => {
+    if (!selectedRoom?.id) return;
+
+    const fetchRange = async () => {
+      const startDate = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth(), 1);
+      const endDate = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth() + 2, 0);
+
+      const formatDate = (d: Date) => {
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      };
+
+      const startStr = formatDate(startDate);
+      const endStr = formatDate(endDate);
+
+      const cacheKey = `${selectedRoom.id}_${startStr}_${endStr}`;
+
+      if (availabilityCacheRef.current[cacheKey]) {
+        setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: availabilityCacheRef.current[cacheKey] }));
+        return; 
+      }
+
+      setAvailabilityLoading(true);
+      try {
+        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
+        
+        const res = await fetch(apiUrl, { cache: 'no-store' });
+        if (!res.ok) throw new Error("Falha ao buscar viabilidade do período");
+        
+        // 🔥 BLINDAGEM: Lê como texto puro primeiro
+        const textData = await res.text();
+        
+        if (!textData) {
+          availabilityCacheRef.current[cacheKey] = [];
+          setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: [] }));
+          return;
+        }
+
+        const data = JSON.parse(textData);
+        
+        if (data.success && data.occupied) {
+          availabilityCacheRef.current[cacheKey] = data.occupied;
+          setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: data.occupied }));
+        } else {
+          availabilityCacheRef.current[cacheKey] = [];
+          setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: [] }));
+        }
+      } catch (error) {
+        console.error("Erro no prefetch de disponibilidade:", error);
+      } finally {
+        setAvailabilityLoading(false);
+      }
+    };
+
+    fetchRange();
+  }, [selectedRoom?.id, viewedMonth]);
 
   const handleSelectRange = useCallback(({ from, to }: { from?: Date; to?: Date }) => {
     if (!selectedRoom) return;
@@ -132,18 +247,16 @@ export default function Home() {
     }
   }, [selectedRoom, cartRooms])
 
-  // Estados derivados específicos da sala atual
   const roomSelectedRange = selectedRoom ? (selectedRanges[selectedRoom.id] || {}) : {}
   const roomStartTime = selectedRoom ? (startTimes[selectedRoom.id] || "") : ""
   const roomEndTime = selectedRoom ? (endTimes[selectedRoom.id] || "") : ""
   const roomBookings = selectedRoom ? bookings.filter((b) => b.roomId === selectedRoom.id) : []
   const roomTotal = roomBookings.reduce((acc, item) => acc + item.price, 0)
 
-  // Calculate price for current selection (draft)
   const currentPriceData = selectedRoom
     ? calculateRoomPrice(
         selectedRoom,
-        roomSelectedRange.from || roomSelectedRange.to, // pass a date or undefined; util handles range inside if needed
+        roomSelectedRange.from || roomSelectedRange.to,
         roomStartTime,
         roomEndTime,
         isAssociado ? associadoMonths : 0,
@@ -156,9 +269,7 @@ export default function Home() {
     setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
   }, [])
 
-  const handleEditBooking = useCallback((id: string) => {
-    // No longer used for toggling visibility, but kept for compatibility if needed
-  }, [])
+  const handleEditBooking = useCallback((id: string) => {}, [])
 
   const handleSaveBooking = useCallback((id: string) => {
     setUnsavedIds((prev) => prev.filter((unsavedId) => unsavedId !== id))
@@ -168,9 +279,7 @@ export default function Home() {
     setBookings((prev) => prev.map((item) => {
       if (item.id === id) {
         const updatedItem = { ...item, ...data }
-        
-        // Recalculate price if times or range changed
-        const roomForBooking = ROOMS.find(r => r.id === item.roomId)
+        const roomForBooking = rooms.find(r => r.id === item.roomId)
         if (roomForBooking && (data.startTime !== undefined || data.endTime !== undefined || data.selectedRange !== undefined)) {
           const priceData = calculateRoomPrice(
             roomForBooking,
@@ -182,8 +291,6 @@ export default function Home() {
           )
           updatedItem.price = priceData.finalPrice
         }
-        
-
         return updatedItem
       }
       return item
@@ -194,96 +301,196 @@ export default function Home() {
     } else {
       setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
     }
-  }, [selectedRoom, isAssociado, associadoMonths])
+  }, [selectedRoom, isAssociado, associadoMonths, rooms])
 
   const handleDaySelect = useCallback((date: Date) => {
-    if (!selectedRoom) return;
-    
-    const sTime = startTimes[selectedRoom.id] || ""
-    const eTime = endTimes[selectedRoom.id] || ""
+    const performSelect = async () => { 
+      if (!selectedRoom) return
 
-    // Check if date is already booked
-    const existingBooking = bookings.find(b => 
-      b.roomId === selectedRoom.id && b.selectedRange.from?.toDateString() === date.toDateString()
-    )
+      const sTime = startTimes[selectedRoom.id] || ""
+      const eTime = endTimes[selectedRoom.id] || ""
 
-    if (existingBooking) {
-      // If exists, maybe remove it? Or just focus? 
-      // For now, let's just remove it to toggle selection like a checkbox
-      handleRemoveBooking(existingBooking.id)
-    } else {
-      let price = 0
-      
-      // Se o horário padrão conflitar com o dia escolhido, deixamos em branco para o usuário escolher manualmente
-      let validStartTime = sTime
-      let validEndTime = eTime
-      if (sTime && eTime && !isRangeAvailable(selectedRoom.id, date, date, sTime, eTime)) {
-        validStartTime = ""
-        validEndTime = ""
-      }
+      const existingBooking = bookings.find(
+        (b) => b.roomId === selectedRoom.id && b.selectedRange.from?.toDateString() === date.toDateString()
+      )
 
-      if (validStartTime && validEndTime) {
-        const priceData = calculateRoomPrice(
-          selectedRoom,
-          date,
-          validStartTime,
-          validEndTime,
-          isAssociado ? associadoMonths : 0,
-          { from: date, to: date }
-        )
-        price = priceData.finalPrice
-      }
+      if (existingBooking) {
+        handleRemoveBooking(existingBooking.id)
+      } else {
+        let price = 0
+        let hasConflict = false
 
-      const newItem: BookingItem = {
-        id: Math.random().toString(36).substr(2, 9),
-        roomId: selectedRoom.id,
-        selectedRange: { from: date, to: date },
-        startTime: validStartTime,
-        endTime: validEndTime,
-        price: price
-      }
-      setBookings((prev) => {
-        const newBookings = [...prev, newItem]
-        // Ordena os agendamentos por data (crescente)
-        return newBookings.sort((a, b) => {
-          const dateA = a.selectedRange.from?.getTime() ?? 0
-          const dateB = b.selectedRange.from?.getTime() ?? 0
-          return dateA - dateB
+        if (sTime && eTime) {
+          setAvailabilityLoading(true)
+          try {
+            const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
+            const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
+            
+            const res = await fetch(apiUrl, { cache: 'no-store' })
+            if (!res.ok) throw new Error("API fetch failed")
+            
+            // 🔥 BLINDAGEM NO SINGLE FETCH
+            const textData = await res.text();
+            let availabilityData: any = { success: false, occupied: [] };
+            
+            if (textData) {
+              availabilityData = JSON.parse(textData);
+            }
+
+            let daySpecificOccupiedSlots: OccupiedSlot[] = []
+            if (availabilityData.success && availabilityData.occupied) {
+              daySpecificOccupiedSlots = availabilityData.occupied
+              
+              setOccupiedSlotsByRoom((prev) => {
+                const roomSlots = prev[selectedRoom.id] || [];
+                const filtered = roomSlots.filter((s) => s.date !== dateStr)
+                return { ...prev, [selectedRoom.id]: [...filtered, ...daySpecificOccupiedSlots] }
+              })
+              
+              const cacheKeys = Object.keys(availabilityCacheRef.current);
+              for (const key of cacheKeys) {
+                if (key.includes(selectedRoom.id)) {
+                  const cachedArray = availabilityCacheRef.current[key];
+                  const filteredCache = cachedArray.filter((s) => s.date !== dateStr);
+                  availabilityCacheRef.current[key] = [...filteredCache, ...daySpecificOccupiedSlots];
+                }
+              }
+            }
+
+            if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots)) {
+              hasConflict = true
+            }
+
+            const priceData = calculateRoomPrice(
+              selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
+            )
+            price = priceData.finalPrice
+          } catch (error) {
+            hasConflict = false
+            try {
+              const priceData = calculateRoomPrice(
+                selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
+              )
+              price = priceData.finalPrice
+            } catch (e) {
+              price = 0
+            }
+          } finally {
+            setAvailabilityLoading(false)
+          }
+        }
+
+        const newItem: BookingItem = {
+          id: Math.random().toString(36).substr(2, 9),
+          roomId: selectedRoom.id,
+          selectedRange: { from: date, to: date },
+          startTime: sTime,
+          endTime: eTime,
+          price: price,
+          hasConflict
+        }
+        setBookings((prev) => {
+          const newBookings = [...prev, newItem]
+          return newBookings.sort((a, b) => {
+            const dateA = a.selectedRange.from?.getTime() ?? 0
+            const dateB = b.selectedRange.from?.getTime() ?? 0
+            return dateA - dateB
+          })
         })
-      })
+      }
     }
+    performSelect();
   }, [bookings, startTimes, endTimes, selectedRoom, isAssociado, associadoMonths, handleRemoveBooking])
 
-  const handleApplyDefaultTime = useCallback((start: string, end: string) => {
+  const handleApplyDefaultTime = useCallback(async (start: string, end: string) => {
     if (!selectedRoom) return;
     setStartTimes(prev => ({ ...prev, [selectedRoom.id]: start }))
     setEndTimes(prev => ({ ...prev, [selectedRoom.id]: end }))
     
-    setBookings((prev) => prev.map((item) => {
-      if (item.roomId === selectedRoom.id) {
-        const priceData = calculateRoomPrice(
-          selectedRoom,
-          item.selectedRange.from || item.selectedRange.to,
-          start,
-          end,
-          isAssociado ? associadoMonths : 0,
-          item.selectedRange.from && item.selectedRange.to ? item.selectedRange : undefined
-        )
-        return {
-          ...item,
-          startTime: start,
-          endTime: end,
-          price: priceData.finalPrice
+    const roomBookingsToUpdate = bookings.filter(item => item.roomId === selectedRoom.id);
+    if (roomBookingsToUpdate.length === 0) return;
+
+    setAvailabilityLoading(true);
+
+    const formatDate = (d: Date) => {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+
+    try {
+      const fetchPromises = roomBookingsToUpdate.map(item => {
+        if (!item.selectedRange.from) return Promise.resolve({ success: false, date: null });
+        const dateStr = formatDate(item.selectedRange.from);
+        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
+        
+        return fetch(apiUrl, { cache: 'no-store' })
+          .then(async res => {
+            if (!res.ok) throw new Error(`API fetch failed for ${dateStr}`);
+            
+            // 🔥 BLINDAGEM NO MULTI FETCH
+            const textData = await res.text();
+            if (!textData) return { success: false, occupied: [] };
+            
+            return JSON.parse(textData);
+          })
+          .then(data => ({ ...data, date: dateStr }));
+      });
+
+      const results = await Promise.allSettled(fetchPromises);
+      
+      const availabilityMap = new Map<string, OccupiedSlot[]>();
+      const allNewOccupiedSlots: OccupiedSlot[] = [];
+
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          const date = result.value.date;
+          const occupied = result.value.occupied || [];
+          if (date) {
+            availabilityMap.set(date, occupied);
+            allNewOccupiedSlots.push(...occupied);
+          }
+        }
+      });
+
+      setOccupiedSlotsByRoom(prev => {
+        const roomSlots = prev[selectedRoom.id] || [];
+        const datesToUpdate = Array.from(availabilityMap.keys());
+        const filtered = roomSlots.filter(s => !datesToUpdate.includes(s.date));
+        return { ...prev, [selectedRoom.id]: [...filtered, ...allNewOccupiedSlots] };
+      });
+
+      const cacheKeys = Object.keys(availabilityCacheRef.current);
+      for (const key of cacheKeys) {
+        if (key.includes(selectedRoom.id)) {
+          let cachedArray = availabilityCacheRef.current[key];
+          const datesToUpdate = Array.from(availabilityMap.keys());
+          cachedArray = cachedArray.filter((s) => !datesToUpdate.includes(s.date));
+          availabilityCacheRef.current[key] = [...cachedArray, ...allNewOccupiedSlots];
         }
       }
-      return item
-    }))
-  }, [selectedRoom, isAssociado, associadoMonths])
 
-  // Recalcula os valores de todos os agendamentos caso o status de associado mude
+      setBookings(prev => prev.map(item => {
+        if (item.roomId !== selectedRoom.id) return item;
+
+        const dateStr = item.selectedRange.from ? formatDate(item.selectedRange.from) : null;
+        const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
+        
+        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots));
+
+        const priceData = calculateRoomPrice(selectedRoom, item.selectedRange.from, start, end, isAssociado ? associadoMonths : 0, item.selectedRange.from && item.selectedRange.to ? { from: item.selectedRange.from, to: item.selectedRange.to } : undefined);
+
+        return { ...item, startTime: start, endTime: end, price: priceData.finalPrice, hasConflict };
+      }));
+
+    } catch (error) {
+      console.error("Failed to apply default time and validate", error);
+    } finally {
+      setAvailabilityLoading(false);
+    }
+  }, [selectedRoom, isAssociado, associadoMonths, bookings])
+
   useEffect(() => {
     setBookings((prev) => prev.map((item) => {
-      const roomForBooking = ROOMS.find(r => r.id === item.roomId)
+      const roomForBooking = rooms.find(r => r.id === item.roomId)
       if (!roomForBooking) return item
       
       const priceData = calculateRoomPrice(
@@ -297,13 +504,11 @@ export default function Home() {
       
       return item.price !== priceData.finalPrice ? { ...item, price: priceData.finalPrice } : item
     }))
-  }, [isAssociado, associadoMonths])
+  }, [isAssociado, associadoMonths, rooms])
 
-  // Limpa a sala do carrinho caso o usuário remova todos os horários daquela sala
   useEffect(() => {
     setCartRooms(prev => prev.filter(roomId => bookings.some(b => b.roomId === roomId)))
     
-    // Limpa também os horários de rascunho se a sala não tiver mais agendamentos
     setStartTimes(prev => {
       const next = { ...prev }
       let changed = false
@@ -328,10 +533,8 @@ export default function Home() {
     })
   }, [bookings])
 
-  // Rola suavemente para o calendário quando uma sala é selecionada
   useEffect(() => {
     if (selectedRoom && calendarRef.current) {
-      // O yOffset é um recuo para o header fixo não cobrir o calendário (aprox 100px)
       const yOffset = -100; 
       const y = calendarRef.current.getBoundingClientRect().top + window.scrollY + yOffset;
       window.scrollTo({ top: y, behavior: 'smooth' });
@@ -344,16 +547,13 @@ export default function Home() {
     setCartRooms((prev) => prev.filter((id) => id !== roomId))
   }, [])
 
-  // Restaura o estado salvo ao carregar a página (quando voltar do formulário)
   useEffect(() => {
     const saved = sessionStorage.getItem("acipi_booking_state")
     if (saved) {
       try {
         const parsed = JSON.parse(saved)
-        if (parsed.selectedRoomId) {
-          const room = ROOMS.find(r => r.id === parsed.selectedRoomId)
-          if (room) setSelectedRoom(room)
-        }
+        if (parsed.selectedRoom) setSelectedRoom(parsed.selectedRoom)
+        
         if (parsed.selectedRanges) {
           const restoredRanges: any = {}
           for (const key in parsed.selectedRanges) {
@@ -371,6 +571,7 @@ export default function Home() {
         if (parsed.cnpj !== undefined) setCnpj(parsed.cnpj)
         if (parsed.unsavedIds) setUnsavedIds(parsed.unsavedIds)
         if (parsed.cartRooms) setCartRooms(parsed.cartRooms)
+        if (parsed.occupiedSlotsByRoom) setOccupiedSlotsByRoom(parsed.occupiedSlotsByRoom) 
         if (parsed.bookings) {
           setBookings(parsed.bookings.map((b: any) => ({
             ...b,
@@ -387,11 +588,10 @@ export default function Home() {
     setIsHydrated(true)
   }, [])
 
-  // Salva o estado atual na sessão para preservar ao trocar de página
   useEffect(() => {
     if (!isHydrated) return
     const stateToSave = {
-      selectedRoomId: selectedRoom?.id || null,
+      selectedRoom,
       selectedRanges,
       startTimes,
       endTimes,
@@ -401,9 +601,10 @@ export default function Home() {
       unsavedIds,
       cartRooms,
       bookings,
+      occupiedSlotsByRoom, 
     }
     sessionStorage.setItem("acipi_booking_state", JSON.stringify(stateToSave))
-  }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths, cnpj, unsavedIds, cartRooms, bookings, isHydrated])
+  }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths, cnpj, unsavedIds, cartRooms, bookings, occupiedSlotsByRoom, isHydrated])
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
@@ -426,6 +627,7 @@ export default function Home() {
             <RoomList
               selectedRoomId={selectedRoom?.id ?? null}
               onSelectRoom={handleSelectRoom}
+              onLoadedSpaces={setRooms}
             />
           </div>
 
@@ -436,6 +638,7 @@ export default function Home() {
                 <>
                   <Card className="px-8 py-6">
                       <BookingCalendar
+                        key={selectedRoom.id}
                         room={selectedRoom}
                         selectedRange={roomSelectedRange}
                         onDaySelect={handleDaySelect}
@@ -460,7 +663,7 @@ export default function Home() {
                         onAssociadoMonthsChange={setAssociadoMonths}
                         cnpj={cnpj}
                         onCnpjChange={setCnpj}
-                        onConfirm={handleConfirm} // This now confirms everything
+                        onConfirm={handleConfirm}
                         priceData={currentPriceData}
                         bookings={roomBookings}
                         onRemoveBooking={handleRemoveBooking}
@@ -469,7 +672,11 @@ export default function Home() {
                         onSaveBooking={handleSaveBooking}
                         unsavedIds={unsavedIds}
                         onApplyDefaultTime={handleApplyDefaultTime}
+                        onMonthChange={setViewedMonth}
+                        occupiedSlots={selectedRoom ? (occupiedSlotsByRoom[selectedRoom.id] || []) : []}
+                        availabilityLoading={availabilityLoading}
                         totalPrice={roomTotal}
+                        isRoomDetailsLoading={isRoomDetailsLoading}
                       />
                   </Card>
 
@@ -497,6 +704,8 @@ export default function Home() {
         onOpenChange={setIsCartOpen}
         cartRooms={cartRooms}
         bookings={bookings}
+        rooms={rooms}
+        occupiedSlotsByRoom={occupiedSlotsByRoom}
         onUpdateBooking={handleUpdateBooking}
         onRemoveRoom={handleRemoveFromCart}
         onCheckout={() => {
