@@ -8,8 +8,10 @@ export function cn(...inputs: ClassValue[]) {
 
 export function calculateDurationHours(start: string, end: string): number {
   if (!start || !end) return 0
-  const [sh, sm] = start.split(":").map(Number)
-  const [eh, em] = end.split(":").map(Number)
+  const sh = parseInt(start.substring(0, 2), 10)
+  const sm = parseInt(start.substring(3, 5), 10)
+  const eh = parseInt(end.substring(0, 2), 10)
+  const em = parseInt(end.substring(3, 5), 10)
   return ((eh * 60 + em) - (sh * 60 + sm)) / 60
 }
 
@@ -20,12 +22,14 @@ export function getPriceForTimeSlot(
   endTime: string
 ): number {
   const isSaturday = date.getDay() === 6
-  const periods = isSaturday ? room.pricePeriodsSaturday : room.pricePeriodsWeekday
+  const periods = (isSaturday ? room.pricePeriodsSaturday : room.pricePeriodsWeekday) || []
 
   if (periods.length === 0) return 0
 
-  const [sh, sm] = startTime.split(":").map(Number)
-  const [eh, em] = endTime.split(":").map(Number)
+  const sh = parseInt(startTime.substring(0, 2), 10)
+  const sm = parseInt(startTime.substring(3, 5), 10)
+  const eh = parseInt(endTime.substring(0, 2), 10)
+  const em = parseInt(endTime.substring(3, 5), 10)
 
   const startMinutes = sh * 60 + sm
   const endMinutes = eh * 60 + em
@@ -95,14 +99,16 @@ export function calculateRoomPrice(
 
   // helper for single day
   function priceForDay(d: Date) {
-    const [sh, sm] = startTime.split(":").map(Number)
-    const [eh, em] = endTime.split(":").map(Number)
+    const sh = parseInt(startTime.substring(0, 2), 10)
+    const sm = parseInt(startTime.substring(3, 5), 10)
+    const eh = parseInt(endTime.substring(0, 2), 10)
+    const em = parseInt(endTime.substring(3, 5), 10)
 
     const bookedMinutes = (eh * 60 + em) - (sh * 60 + sm)
     const bookedHours = bookedMinutes / 60
 
     const isSaturday = d.getDay() === 6
-    const minHours = isSaturday ? room.minHoursSaturday : room.minHoursWeekday
+    const minHours = (isSaturday ? room.minHoursSaturday : room.minHoursWeekday) || 0
 
     if (bookedHours <= 0) return 0
 

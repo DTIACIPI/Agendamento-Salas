@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import type { OccupiedSlot } from "@/app/page"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
@@ -42,10 +42,9 @@ export const TIME_OPTIONS = generateTimeOptions()
 
 const timeToMinutes = (time: string): number => {
   if (!time) return 0;
-  // Pega estritamente os 5 primeiros caracteres ("12:00:00" vira "12:00")
-  const cleanTime = time.substring(0, 5);
-  const [hours, minutes] = cleanTime.split(':').map(Number);
-  
+  const hours = parseInt(time.substring(0, 2), 10);
+  const minutes = parseInt(time.substring(3, 5), 10);
+
   if (isNaN(hours) || isNaN(minutes)) return 0;
   return (hours * 60) + minutes;
 };
@@ -193,7 +192,10 @@ export function BookingCalendar({
   // ---------------------------------------------
 
   // Cria uma chave a partir dos agendamentos para forçar a nova renderização do calendário na mudança da data da seleção
-  const selectionKey = bookings.map((b) => `${b.id}-${b.selectedRange.from?.getTime() || 0}`).join("-")
+  const selectionKey = useMemo(
+    () => bookings.map((b) => `${b.id}-${b.selectedRange.from?.getTime() || 0}`).join("-"),
+    [bookings]
+  )
 
   // Reset carousel when room changes
   useEffect(() => {
@@ -202,9 +204,9 @@ export function BookingCalendar({
     setDraftEndTime(endTime)
   }, [room.id, startTime, endTime]) // Sync if parent resets
 
-  const draftStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
-    return { time, disabled: false };
-  });
+  const draftStartOptions = useMemo(() => {
+    return TIME_OPTIONS.slice(0, -1).map(time => ({ time, disabled: false }));
+  }, []);
 
   const getDraftEndOptions = (start: string) => {
     const startIdx = TIME_OPTIONS.indexOf(start);
@@ -222,18 +224,20 @@ export function BookingCalendar({
   const hasConflicts = bookings.some(b => b.hasConflict)
   const canConfirm = bookings.length > 0 && !hasIncompleteItems && !hasConflicts
 
-  const roomImages = room.images && room.images.length > 0 ? room.images : [room.image]
+  const roomImages = useMemo(() => {
+    return room.images && room.images.length > 0 ? room.images : [room.image];
+  }, [room.images, room.image]);
 
-  const isDateFullyBooked = (date: Date) => {
+  const isDateFullyBooked = useCallback((date: Date) => {
     // Consider a date fully booked if all time slots are occupied
     return TIME_OPTIONS.slice(0, -1).every(t => isSlotOccupied(date, t, occupiedSlots));
-  };
+  }, [occupiedSlots]);
 
-  const disabledDates = [
-    { before: new Date(new Date().setHours(0, 0, 0, 0)) },
-    { dayOfWeek: [0] }, // Disable all Sundays
-    isDateFullyBooked
-  ];
+  const disabledDates = useMemo(() => [
+      { before: new Date(new Date().setHours(0, 0, 0, 0)) },
+      { dayOfWeek: [0] }, // Disable all Sundays
+      isDateFullyBooked
+  ], [isDateFullyBooked]);
 
   const handlePrevImage = () => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
@@ -260,8 +264,8 @@ export function BookingCalendar({
       <div className="flex flex-col gap-6 2xl:flex-row 2xl:gap-6 2xl:items-start">
         {/* Left side: Calendars */}
         <div className="flex-1">
-        <div className="rounded-lg border bg-card px-8 py-6 flex flex-wrap justify-center gap-6 xl:justify-between">
-            <div className="flex-1 flex justify-center">
+        <div className="rounded-lg border bg-card px-2 sm:px-4 py-6 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-[38px]">
+            <div className="flex justify-center">
               <Calendar
                 key={`left-${selectionKey}`}
                 mode="multiple"
@@ -280,7 +284,7 @@ export function BookingCalendar({
                 className="mx-auto"
               />
             </div>
-            <div className="flex-1 flex justify-center">
+            <div className="flex justify-center">
               <Calendar
                 key={`right-${selectionKey}`}
                 mode="multiple"
@@ -368,26 +372,33 @@ export function BookingCalendar({
         </div>
 
         {/* Right side: Image Carousel + Booking Summary */}
-        <div className="w-full 2xl:w-[320px] shrink-0 flex flex-col gap-4">
+        <div className="w-full 2xl:w-[280px] shrink-0 flex flex-col gap-4">
         {/* Image Carousel */}
-        <div className="relative aspect-video w-full overflow-hidden rounded-lg group">
-          <Image
-            src={roomImages[carouselIndex]}
-            alt={`${room.name} - Foto ${carouselIndex + 1}`}
-            fill
-            className="object-cover cursor-pointer"
-            sizes="320px"
-            onClick={() => setIsLightboxOpen(true)}
-          />
+        <div className="relative aspect-video w-full overflow-hidden rounded-lg group bg-gray-100">
+          {roomImages.map((img, idx) => (
+            <Image
+              key={idx}
+              src={img}
+              alt={`${room.name} - Foto ${idx + 1}`}
+              fill
+              className={cn(
+                "object-cover cursor-pointer transition-opacity duration-300 ease-in-out",
+                idx === carouselIndex ? "opacity-100 z-10 pointer-events-auto" : "opacity-0 z-0 pointer-events-none"
+              )}
+              sizes="320px"
+              onClick={() => setIsLightboxOpen(true)}
+              priority={idx === 0}
+            />
+          ))}
 
           {isRoomDetailsLoading && (
-            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/10 backdrop-blur-[2px] transition-all duration-300">
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/10 backdrop-blur-[2px] transition-all duration-300">
               <Loader2 className="size-8 animate-spin text-white drop-shadow-md" />
             </div>
           )}  
 
           {roomImages.length > 1 && (
-            <div className="absolute inset-0 flex items-center justify-between p-2 pointer-events-none">
+            <div className="absolute inset-0 z-20 flex items-center justify-between p-2 pointer-events-none">
               {/* Previous button */}
               <button
                 onClick={(e) => {
@@ -416,7 +427,7 @@ export function BookingCalendar({
 
               {/* Dot indicators (Bottom) */}
               {roomImages.length > 1 && (
-              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex gap-1.5">
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-20 flex gap-1.5">
                 {roomImages.map((_, idx) => (
                   <button
                     key={idx}
@@ -435,7 +446,7 @@ export function BookingCalendar({
 
               {/* Counter (Top Right) */}
               {roomImages.length > 1 && (
-                <div className="absolute top-2 right-2 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
+                <div className="absolute top-2 right-2 z-20 rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white backdrop-blur-sm">
                   {carouselIndex + 1}/{roomImages.length}
                 </div>
               )}
@@ -466,29 +477,34 @@ export function BookingCalendar({
               </button>
 
               {/* Main Image */}
-              <Image
-                key={carouselIndex} // Force re-render for animation
-                src={roomImages[carouselIndex]}
-                alt={`${room.name} - Foto ${carouselIndex + 1}`}
-                fill
-                className="object-contain"
-                sizes="100vw"
-                priority
-              />
+              {roomImages.map((img, idx) => (
+                <Image
+                  key={idx}
+                  src={img}
+                  alt={`${room.name} - Foto ${idx + 1}`}
+                  fill
+                  className={cn(
+                    "object-contain transition-opacity duration-300 ease-in-out",
+                    idx === carouselIndex ? "opacity-100 z-10" : "opacity-0 z-0 pointer-events-none"
+                  )}
+                  sizes="100vw"
+                  priority={idx === 0}
+                />
+              ))}
               
               {/* Navigation Controls */}
               {roomImages.length > 1 && (
                 <>
               <button
                 onClick={handlePrevImage}
-                className="absolute left-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
+                className="absolute left-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
                 aria-label="Imagem anterior"
               >
                 <ChevronLeft className="size-6" />
               </button>
               <button
                 onClick={handleNextImage}
-                className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
+                className="absolute right-4 top-1/2 -translate-y-1/2 z-20 p-2 rounded-full bg-white/80 text-gray-700 hover:bg-white hover:text-black transition-all shadow-sm"
                 aria-label="Próxima imagem"
               >
                 <ChevronRight className="size-6" />

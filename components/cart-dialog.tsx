@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogTitle, DialogHeader } from "@/components/ui/dialog"
 import { Trash2, Users, Edit2, Check, X, AlertCircle, Loader2 } from "lucide-react"
@@ -43,11 +43,18 @@ export function CartDialog({
   
   const [isValidating, setIsValidating] = useState(false)
 
-  const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
-  const total = cartBookings.reduce((sum, b) => sum + b.price, 0)
+  const cartBookings = useMemo(
+    () => bookings.filter(b => cartRooms.includes(b.roomId)),
+    [bookings, cartRooms]
+  )
+  
+  const total = useMemo(
+    () => cartBookings.reduce((sum, b) => sum + b.price, 0),
+    [cartBookings]
+  )
 
-  const hasIncompleteItems = cartBookings.some(b => !b.startTime || !b.endTime)
-  const hasConflicts = cartBookings.some(b => b.hasConflict)
+  const hasIncompleteItems = useMemo(() => cartBookings.some(b => !b.startTime || !b.endTime), [cartBookings])
+  const hasConflicts = useMemo(() => cartBookings.some(b => b.hasConflict), [cartBookings])
   const canCheckout = cartRooms.length > 0 && !hasIncompleteItems && !hasConflicts
 
   useEffect(() => {

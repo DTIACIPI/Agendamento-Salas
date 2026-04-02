@@ -621,7 +621,7 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid gap-6 lg:grid-cols-[30%_1fr] items-start">
+        <div className="grid gap-6 lg:grid-cols-[minmax(420px,45%)_1fr] xl:grid-cols-[minmax(460px,38%)_1fr] 2xl:grid-cols-[minmax(530px,30%)_1fr] items-start">
           {/* Left Column: Room List */}
           <div className="flex flex-col gap-4">
             <RoomList
@@ -636,7 +636,7 @@ export default function Home() {
             {selectedRoom ? (
               selectedRoom.available ? (
                 <>
-                  <Card className="px-8 py-6">
+                  <Card className="px-6 py-6">
                       <BookingCalendar
                         key={selectedRoom.id}
                         room={selectedRoom}

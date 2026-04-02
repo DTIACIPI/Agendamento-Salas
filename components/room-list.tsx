@@ -121,7 +121,7 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
             <div className="flex flex-col sm:flex-row items-stretch">
               
               {/* Container da Imagem */}
-              <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-48 sm:h-auto sm:w-[35%] aspect-video sm:aspect-square xl:aspect-[4/3]">
+              <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-48 sm:h-auto sm:w-[42%] sm:max-w-[320px] aspect-video sm:aspect-[4/3]">
                 <Image
                   src={room.image}
                   alt={room.name}
