@@ -15,11 +15,13 @@ import {
   Monitor,
   Plus,
   Trash2,
-  Edit2,
+
   Save,
   X,
   Loader2,
   CheckCircle2,
+  Info,
+
 } from "lucide-react"
 import Image from "next/image"
 import { cn } from "@/lib/utils"
@@ -39,6 +41,16 @@ function generateTimeOptions(): string[] {
 }
 
 export const TIME_OPTIONS = generateTimeOptions()
+
+function getDraftEndOptions(start: string) {
+  const startIdx = TIME_OPTIONS.indexOf(start)
+  if (startIdx === -1) return []
+  const options = []
+  for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
+    options.push({ time: TIME_OPTIONS[i], disabled: false })
+  }
+  return options
+}
 
 const timeToMinutes = (time: string): number => {
   if (!time) return 0;
@@ -114,10 +126,12 @@ interface BookingCalendarProps {
     finalPrice: number
     appliedMinimumHours: number
   }
-  bookings: any[] // Using any for simplicity in diff, ideally import BookingItem type
+  bookings: any[] // room-specific bookings for calendar/editing
+  allBookings: any[] // ALL bookings across all rooms for global summary
+  allRooms: Room[] // ALL rooms for name lookup
+  cartRooms: string[] // rooms already confirmed to cart
   onDaySelect: (date: Date) => void
   onRemoveBooking: (id: string) => void
-  onEditBooking: (id: string) => void
   onUpdateBooking: (id: string, data: any) => void
   onSaveBooking: (id: string) => void
   unsavedIds: string[]
@@ -127,6 +141,7 @@ interface BookingCalendarProps {
   occupiedSlots: OccupiedSlot[];
   availabilityLoading: boolean;
   isRoomDetailsLoading?: boolean;
+  onSwitchRoom?: (roomId: string) => void;
 }
 
 export function BookingCalendar({
@@ -141,8 +156,10 @@ export function BookingCalendar({
   onConfirm,
   priceData,
   bookings,
+  allBookings,
+  allRooms,
+  cartRooms,
   onRemoveBooking,
-  onEditBooking,
   onUpdateBooking,
   onSaveBooking,
   unsavedIds,
@@ -152,6 +169,7 @@ export function BookingCalendar({
   occupiedSlots,
   availabilityLoading,
   isRoomDetailsLoading,
+  onSwitchRoom,
 }: BookingCalendarProps) {
   const [carouselIndex, setCarouselIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
@@ -208,36 +226,91 @@ export function BookingCalendar({
     return TIME_OPTIONS.slice(0, -1).map(time => ({ time, disabled: false }));
   }, []);
 
-  const getDraftEndOptions = (start: string) => {
-    const startIdx = TIME_OPTIONS.indexOf(start);
-    if (startIdx === -1) return [];
-    const options = [];
-    for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
-      const time = TIME_OPTIONS[i];
-      options.push({ time, disabled: false });
-    }
-    return options;
-  };
-  const draftEndOptions = draftStartTime ? getDraftEndOptions(draftStartTime) : [];
+  const draftEndOptions = useMemo(
+    () => draftStartTime ? getDraftEndOptions(draftStartTime) : [],
+    [draftStartTime]
+  )
 
   const hasIncompleteItems = bookings.some(b => !b.startTime || !b.endTime)
   const hasConflicts = bookings.some(b => b.hasConflict)
-  const canConfirm = bookings.length > 0 && !hasIncompleteItems && !hasConflicts
+  const isCurrentRoomInCart = cartRooms.includes(room.id)
+
+  // All pending bookings (not in cart) grouped by room, current room first
+  // Current room: show all items (even mid-edit with empty endTime)
+  // Other rooms: only show items with complete times
+  const pendingByRoom = useMemo(() => {
+    const pending = allBookings.filter(b => {
+      if (cartRooms.includes(b.roomId)) return false
+      // Current room: show if item has startTime (mid-edit ok) or room default time is set
+      if (b.roomId === room.id) return b.startTime || (startTime && endTime)
+      // Other rooms: only show complete items
+      return b.startTime && b.endTime
+    })
+    const groups = new Map<string, typeof pending>()
+    for (const b of pending) {
+      const list = groups.get(b.roomId) || []
+      list.push(b)
+      groups.set(b.roomId, list)
+    }
+    // Sort dates within each group
+    for (const list of groups.values()) {
+      list.sort((a, b) => (a.selectedRange.from?.getTime() ?? 0) - (b.selectedRange.from?.getTime() ?? 0))
+    }
+    // Current room first, then others
+    const sorted: { roomId: string; roomName: string; items: typeof pending }[] = []
+    if (groups.has(room.id)) {
+      sorted.push({ roomId: room.id, roomName: room.name, items: groups.get(room.id)! })
+    }
+    for (const [rid, items] of groups) {
+      if (rid === room.id) continue
+      const r = allRooms.find(r => r.id === rid)
+      sorted.push({ roomId: rid, roomName: r?.name || "Sala", items })
+    }
+    return sorted
+  }, [allBookings, cartRooms, room.id, room.name, allRooms, startTime, endTime])
+
+  // canConfirm: current room must be ready AND all other pending bookings must also be complete
+  const allPendingComplete = useMemo(
+    () => allBookings.filter(b => !cartRooms.includes(b.roomId)).every(b => b.startTime && b.endTime && !b.hasConflict),
+    [allBookings, cartRooms]
+  )
+  const canConfirm = bookings.length > 0 && !hasIncompleteItems && !hasConflicts && !isCurrentRoomInCart && allPendingComplete
 
   const roomImages = useMemo(() => {
     return room.images && room.images.length > 0 ? room.images : [room.image];
   }, [room.images, room.image]);
 
-  const isDateFullyBooked = useCallback((date: Date) => {
-    // Consider a date fully booked if all time slots are occupied
-    return TIME_OPTIONS.slice(0, -1).every(t => isSlotOccupied(date, t, occupiedSlots));
+  const fullyBookedDatesSet = useMemo(() => {
+    const set = new Set<string>();
+    const dateKeys = new Set(occupiedSlots.map(s => s.date));
+    const allSlots = TIME_OPTIONS.slice(0, -1);
+    for (const dateKey of dateKeys) {
+      const slotsForDate = occupiedSlots.filter(s => s.date === dateKey);
+      const [year, month, day] = dateKey.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      if (allSlots.every(t => isSlotOccupied(d, t, slotsForDate))) {
+        set.add(dateKey);
+      }
+    }
+    return set;
   }, [occupiedSlots]);
 
+  const isDateFullyBooked = useCallback((date: Date) => {
+    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    return fullyBookedDatesSet.has(key);
+  }, [fullyBookedDatesSet]);
+
+  const todayStart = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
   const disabledDates = useMemo(() => [
-      { before: new Date(new Date().setHours(0, 0, 0, 0)) },
-      { dayOfWeek: [0] }, // Disable all Sundays
+      { before: todayStart },
+      { dayOfWeek: [0] },
       isDateFullyBooked
-  ], [isDateFullyBooked]);
+  ], [todayStart, isDateFullyBooked]);
 
   const handlePrevImage = () => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
@@ -264,7 +337,7 @@ export function BookingCalendar({
       <div className="flex flex-col gap-6 2xl:flex-row 2xl:gap-6 2xl:items-start">
         {/* Left side: Calendars */}
         <div className="flex-1">
-        <div className="rounded-lg border bg-card px-2 sm:px-4 py-6 flex flex-col md:flex-row items-center justify-center gap-6 md:gap-[38px]">
+        <div className="rounded-lg border bg-card px-2 sm:px-4 py-4 sm:py-6 flex flex-col md:flex-row items-center justify-center gap-4 md:gap-6 lg:gap-[38px]">
             <div className="flex justify-center">
               <Calendar
                 key={`left-${selectionKey}`}
@@ -306,28 +379,28 @@ export function BookingCalendar({
             </div>
           </div>
         {/* Legend area below calendars */}
-        <div className="mt-2 border rounded-lg bg-card px-8 py-6 text-sm text-muted-foreground">
+        <div className="mt-2 border rounded-lg bg-card px-4 sm:px-6 lg:px-8 py-4 sm:py-6 text-sm text-muted-foreground">
           
           {/* amenities icons DINÂMICOS */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2.5 pb-3 mb-3 border-b text-[#384050]">
-            
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3 mb-3 border-b text-[#384050] text-[13px]">
+
             {/* Capacidade Fixa Sempre Visível */}
             <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <Users className="size-4 text-primary" />
+              <Users className="size-3.5 text-primary" />
               <span>Capacidade: {room.capacity} pessoas</span>
             </div>
 
             {/* Loop das Comodidades do Banco de Dados */}
             {room.amenities && room.amenities.length > 0 ? (
               room.amenities.map((amenity, index) => {
-                let Icon = CheckCircle2; 
+                let Icon = CheckCircle2;
                 const text = amenity.toLowerCase();
                 if (text.includes("projetor") || text.includes("tela")) Icon = Monitor;
                 else if (text.includes("internet") || text.includes("wi-fi") || text.includes("wifi")) Icon = Wifi;
-                
+
                 return (
                   <div key={index} className="flex items-center gap-1.5 whitespace-nowrap">
-                    <Icon className="size-4 text-primary" />
+                    <Icon className="size-3.5 text-primary" />
                     <span>{amenity}</span>
                   </div>
                 )
@@ -338,21 +411,21 @@ export function BookingCalendar({
           </div>
 
           {/* color legend and rule */}
-          <div className="flex flex-wrap items-center gap-6 md:gap-8 pb-4">
-            <div className="flex items-center gap-2">
-              <span className="block w-3 h-3 rounded-full border"></span>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-4 text-[13px]">
+            <div className="flex items-center gap-1.5">
+              <span className="block w-2.5 h-2.5 rounded-full border"></span>
               <span>Livre</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="block w-3 h-3 rounded-full bg-primary"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="block w-2.5 h-2.5 rounded-full bg-primary"></span>
               <span>Selecionado</span>
             </div>
-            <div className="flex items-center gap-2">
-              <span className="block w-3 h-3 rounded-full bg-muted"></span>
+            <div className="flex items-center gap-1.5">
+              <span className="block w-2.5 h-2.5 rounded-full bg-muted"></span>
               <span>Indisponível</span>
             </div>
-            <div className="ml-auto pl-6 border-l border-border hidden md:block">
-              Reservas com antecedência mínima de 24 horas
+            <div className="w-full mt-1.5 pt-1.5 border-t border-border/50 text-xs md:w-auto md:mt-0 md:pt-0 md:border-t-0 md:ml-auto">
+              Antecedência mínima de 24h
             </div>
           </div>
 
@@ -372,7 +445,7 @@ export function BookingCalendar({
         </div>
 
         {/* Right side: Image Carousel + Booking Summary */}
-        <div className="w-full 2xl:w-[280px] shrink-0 flex flex-col gap-4">
+        <div className="w-full max-w-md mx-auto 2xl:max-w-none 2xl:mx-0 2xl:w-[280px] shrink-0 flex flex-col gap-4">
         {/* Image Carousel */}
         <div className="relative aspect-video w-full overflow-hidden rounded-lg group bg-gray-100">
           {roomImages.map((img, idx) => (
@@ -600,111 +673,139 @@ export function BookingCalendar({
           </div>
           )}
 
-          {/* List of Added Bookings */}
-          {bookings.length > 0 && startTime && endTime && (
-            <div className="flex flex-col gap-2">
-              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Itens Adicionados</span>
-              {bookings.map((item) => {
-                const isUnsaved = unsavedIds.includes(item.id)
-                
-                const itemStartOptions = TIME_OPTIONS.slice(0, -1).map(time => {
-                  const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
-                  return { time, disabled: !!occupied };
-                });
-                
-                const getItemEndOptions = (start: string) => {
-                  const startIdx = TIME_OPTIONS.indexOf(start);
-                  if (startIdx === -1) return [];
-                  const options = [];
-                  
-                  for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
-                    const time = TIME_OPTIONS[i];
-                    
-                    // Agora validamos apenas se o bloquinho imediatamente anterior a esta opção está ocupado.
-                    const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, TIME_OPTIONS[i - 1], occupiedSlots);
-                    
-                    options.push({ time, disabled: !!isOccupied });
-                  }
-                  return options;
-                };
-                const itemEndOptions = item.startTime ? getItemEndOptions(item.startTime) : [];
-
-                return (
-                <div 
-                  key={item.id} 
-                  className={cn(
-                    "flex flex-col gap-2 p-3 rounded-lg border text-sm transition-colors bg-card shadow-sm",
-                    item.hasConflict ? "border-red-300 bg-red-50/50" : "border-border"
-                  )}
-                >
-                  <div className="flex items-start justify-between">
-                  <div className="flex flex-col gap-1">
-                    <span className="font-medium">
-                      {item.selectedRange.from?.toLocaleDateString("pt-BR")}
-                    </span>
-                  </div>
-                  
-                  <div className="flex gap-1">
+          {/* Pending bookings grouped by room, current room first */}
+          {pendingByRoom.map((group, groupIdx) => {
+            const isCurrentRoom = group.roomId === room.id
+            return (
+              <div key={group.roomId} className={cn(
+                "rounded-lg border border-border bg-card overflow-hidden",
+                groupIdx > 0 && "mt-1"
+              )}>
+                {/* Room group header */}
+                <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2.5">
+                  <span className="text-sm font-bold text-[#384050]">{group.roomName}</span>
+                  <span className="text-[10px] text-muted-foreground font-medium">({group.items.length} {group.items.length === 1 ? "dia" : "dias"})</span>
+                  {!isCurrentRoom && (
                     <button
-                      onClick={() => onRemoveBooking(item.id)}
-                      className="p-1.5 hover:bg-red-100 cursor-pointer rounded-md text-muted-foreground hover:text-red-600 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                      title="Remover"
+                      onClick={() => onSwitchRoom?.(group.roomId)}
+                      className="ml-auto text-[11px] font-medium text-primary cursor-pointer hover:underline"
                     >
-                      <Trash2 className="size-4" />
+                      Editar
                     </button>
-                  </div>
-                  </div>
+                  )}
+                </div>
 
-                    {item.hasConflict && (
-                      <span className="text-xs text-red-600 font-medium leading-tight">
-                        O horário selecionado não está disponível.
-                      </span>
-                    )}
+                {/* Items — separated by thin border-bottom, no individual cards */}
+                {group.items.map((item, itemIdx) => {
+                  const isUnsaved = unsavedIds.includes(item.id)
+                  const isLast = itemIdx === group.items.length - 1
 
-                    <div className="flex flex-col gap-2 pt-2 border-t">
-                      <div className="grid grid-cols-2 gap-2">
-                        <select
-                          value={item.startTime}
-                          onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "", hasConflict: false })}
-                          disabled={availabilityLoading}
-                          className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm"
+                  const itemStartOptions = isCurrentRoom ? TIME_OPTIONS.slice(0, -1).map(time => {
+                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
+                    return { time, disabled: !!occupied };
+                  }) : [];
+
+                  const getItemEndOptions = (start: string) => {
+                    const startIdx = TIME_OPTIONS.indexOf(start);
+                    if (startIdx === -1) return [];
+                    const options = [];
+                    for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
+                      const time = TIME_OPTIONS[i];
+                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, TIME_OPTIONS[i - 1], occupiedSlots);
+                      options.push({ time, disabled: !!isOccupied });
+                    }
+                    return options;
+                  };
+                  const itemEndOptions = isCurrentRoom && item.startTime ? getItemEndOptions(item.startTime) : [];
+
+                  return isCurrentRoom ? (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "flex flex-col gap-2 px-3 py-2.5 text-sm",
+                        !isLast && "border-b border-border/40",
+                        item.hasConflict && "bg-red-50/50"
+                      )}
+                    >
+                      <div className="flex items-start justify-between">
+                        <span className="font-medium">{item.selectedRange.from?.toLocaleDateString("pt-BR")}</span>
+                        <button
+                          onClick={() => onRemoveBooking(item.id)}
+                          className="p-1 hover:bg-red-100 cursor-pointer rounded-md text-muted-foreground hover:text-red-600 transition-colors"
+                          title="Remover"
                         >
-                          <option value="">Início</option>
-                          {itemStartOptions.map((opt) => (
-                            <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
-                          ))}
-                        </select>
-                        <select
-                          value={item.endTime}
-                          onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value, hasConflict: false })}
-                          disabled={!item.startTime || availabilityLoading}
-                          className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm disabled:opacity-50"
-                        >
-                          <option value="">Término</option>
-                          {itemEndOptions.map((opt) => (
-                            <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
-                          ))}
-                        </select>
+                          <Trash2 className="size-3.5" />
+                        </button>
                       </div>
-                      {isUnsaved && (
-                      <button
-                        onClick={() => onSaveBooking(item.id)}
-                        disabled={!item.startTime || !item.endTime}
-                        className={cn(
-                          "mt-2 flex items-center justify-center cursor-pointer gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
-                          "disabled:opacity-50 disabled:cursor-not-allowed"
+                      {item.hasConflict && (
+                        <span className="text-xs text-red-600 font-medium leading-tight">
+                          O horário selecionado não está disponível.
+                        </span>
+                      )}
+                      <div className="flex flex-col gap-2">
+                        <div className="grid grid-cols-2 gap-2">
+                          <select
+                            value={item.startTime}
+                            onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "", hasConflict: false })}
+                            disabled={availabilityLoading}
+                            className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm"
+                          >
+                            <option value="">Início</option>
+                            {itemStartOptions.map((opt) => (
+                              <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                            ))}
+                          </select>
+                          <select
+                            value={item.endTime}
+                            onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value, hasConflict: false })}
+                            disabled={!item.startTime || availabilityLoading}
+                            className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm disabled:opacity-50"
+                          >
+                            <option value="">Término</option>
+                            {itemEndOptions.map((opt) => (
+                              <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>
+                            ))}
+                          </select>
+                        </div>
+                        {isUnsaved && (
+                          <button
+                            onClick={() => onSaveBooking(item.id)}
+                            disabled={!item.startTime || !item.endTime}
+                            className={cn(
+                              "flex items-center justify-center cursor-pointer gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90",
+                              "disabled:opacity-50 disabled:cursor-not-allowed"
+                            )}
+                          >
+                            <Save className="size-3" />
+                            Salvar Horário
+                          </button>
                         )}
-                      >
-                        <Save className="size-3" />
-                        Salvar Horário
-                      </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      key={item.id}
+                      className={cn(
+                        "flex flex-col gap-1 px-3 py-2.5 text-sm",
+                        !isLast && "border-b border-border/40",
+                        item.hasConflict && "bg-red-50/50"
+                      )}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium">{item.selectedRange.from?.toLocaleDateString("pt-BR")}</span>
+                        <span className="text-xs text-muted-foreground">{item.startTime} às {item.endTime}</span>
+                      </div>
+                      {item.hasConflict && (
+                        <span className="text-xs text-red-600 font-medium leading-tight">
+                          Horário indisponível
+                        </span>
                       )}
                     </div>
-                </div>
-                )
-              })}
-            </div>
-          )}
+                  )
+                })}
+              </div>
+            )
+          })}
 
               {/* Estimated Price */}
               {(totalPrice > 0) && startTime && endTime && (
@@ -717,9 +818,25 @@ export function BookingCalendar({
                 <span className="text-sm font-bold">Valor para Associado</span>
                 <span className="text-base font-bold">R$ {(totalPrice * 0.9).toFixed(2).replace(".", ",")}</span>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    * Para associados, o desconto pode chegar até 30%.
-                  </p>
+                  <div className="mt-1 flex flex-col gap-1">
+                    <p className="text-[11px] text-muted-foreground">
+                      * Para associados, o desconto pode chegar até 30%.
+                    </p>
+                    <details className="group text-[11px]">
+                      <summary className="inline-flex items-center gap-1 text-primary cursor-pointer hover:underline font-medium">
+                        <Info className="size-3" />
+                        Saiba mais
+                      </summary>
+                      <div className="mt-1.5 rounded-md bg-blue-50 border border-blue-100 p-2.5 text-xs text-blue-900 leading-relaxed">
+                        <span className="font-semibold">Regra de desconto por tempo de associação:</span>
+                        <ul className="mt-1 ml-3 list-disc space-y-0.5">
+                          <li>Até 12 meses: <strong>10%</strong></li>
+                          <li>De 13 a 24 meses: <strong>20%</strong></li>
+                          <li>Acima de 24 meses: <strong>30%</strong></li>
+                        </ul>
+                      </div>
+                    </details>
+                  </div>
                 </div>
               )}
 

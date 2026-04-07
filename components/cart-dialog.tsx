@@ -3,10 +3,10 @@
 import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogTitle, DialogHeader } from "@/components/ui/dialog"
-import { Trash2, Users, Edit2, Check, X, AlertCircle, Loader2 } from "lucide-react"
+import { Trash2, Users, Edit2, Check, X, AlertCircle, Loader2, Info } from "lucide-react"
 import type { BookingItem, OccupiedSlot } from "@/app/page"
 import type { Room } from "@/components/room-list"
-import { cn, isValidCNPJ } from "@/lib/utils"
+import { cn, isValidCNPJ, API_BASE_URL } from "@/lib/utils"
 import Image from "next/image"
 import { TIME_OPTIONS, isSlotOccupied } from "@/components/booking-calendar"
 
@@ -55,7 +55,15 @@ export function CartDialog({
 
   const hasIncompleteItems = useMemo(() => cartBookings.some(b => !b.startTime || !b.endTime), [cartBookings])
   const hasConflicts = useMemo(() => cartBookings.some(b => b.hasConflict), [cartBookings])
-  const canCheckout = cartRooms.length > 0 && !hasIncompleteItems && !hasConflicts
+
+  // Detect orphan bookings: bookings that exist but whose room is NOT in the cart
+  const orphanBookings = useMemo(
+    () => bookings.filter(b => !cartRooms.includes(b.roomId)),
+    [bookings, cartRooms]
+  )
+  const hasOrphanBookings = orphanBookings.length > 0
+
+  const canCheckout = cartRooms.length > 0 && !hasIncompleteItems && !hasConflicts && !hasOrphanBookings
 
   useEffect(() => {
     if (!open) {
@@ -70,8 +78,8 @@ export function CartDialog({
     try {
       const cleanCnpj = cnpj.replace(/\D/g, "")
 
-      const urlValidateCompany = `https://acipiapi.eastus.cloudapp.azure.com/webhook/validate-cnpj-webhook/api/companies/validate/${cleanCnpj}`
-      const urlCalculatePricing = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/pricing/calculate`
+      const urlValidateCompany = `${API_BASE_URL}/webhook/validate-cnpj-webhook/api/companies/validate/${cleanCnpj}`
+      const urlCalculatePricing = `${API_BASE_URL}/webhook/api/pricing/calculate`
 
       const [companyRes, pricingRes] = await Promise.all([
         fetch(urlValidateCompany).catch((err) => {
@@ -118,7 +126,7 @@ export function CartDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent 
-        className="!max-w-[70vw] sm:!max-w-[70vw] md:!max-w-[70vw] lg:!max-w-[70vw] !w-[70vw] h-[80vh] max-h-[80vh] flex flex-col p-0 overflow-hidden gap-0 bg-slate-50"
+        className="!max-w-[95vw] !w-[95vw] md:!max-w-[80vw] md:!w-[80vw] lg:!max-w-[70vw] lg:!w-[70vw] h-[85vh] md:h-[80vh] max-h-[85vh] md:max-h-[80vh] flex flex-col p-0 overflow-hidden gap-0 bg-slate-50"
         onInteractOutside={(e) => {
           const target = e.target as Element;
           if (target?.closest?.('#whatsapp-button')) {
@@ -170,9 +178,11 @@ export function CartDialog({
                             <span className="flex items-center gap-1"><Users className="size-3.5" /> Até {room.capacity} pessoas</span>
                             <>
                               <span className="hidden sm:inline">•</span>
+                              {room.amenities.length > 0 && (
                               <span className="truncate max-w-[200px] hidden sm:inline">
-                                {(room.amenities.length > 0 ? room.amenities : ["Wi-Fi", "Projetor", "Ar Condicionado"]).slice(0, 3).join(", ")}
+                                {room.amenities.slice(0, 3).join(", ")}
                               </span>
+                              )}
                             </>
                           </div>
                         </div>
@@ -255,16 +265,16 @@ export function CartDialog({
                                 )}
 
                                 {isEditing && (
-                                  <div className="flex items-center gap-2 mt-1 pt-2 border-t border-slate-200/60">
-                                    <select value={editStartTime} onChange={(e) => { setEditStartTime(e.target.value); setEditEndTime(""); }} className="rounded-md border cursor-pointer bg-white px-2 py-1 text-xs focus:ring-1 focus:ring-primary outline-none">
+                                  <div className="flex flex-wrap items-center gap-2 mt-1 pt-2 border-t border-slate-200/60">
+                                    <select value={editStartTime} onChange={(e) => { setEditStartTime(e.target.value); setEditEndTime(""); }} className="flex-1 min-w-[80px] rounded-md border cursor-pointer bg-white px-2 py-1 text-xs focus:ring-1 focus:ring-primary outline-none">
                                       <option value="">Início</option>
                                       {startOptions.map(opt => <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>)}
                                     </select>
-                                    <select value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)} disabled={!editStartTime} className="rounded-md border cursor-pointer bg-white px-2 py-1 text-xs disabled:opacity-50 focus:ring-1 focus:ring-primary outline-none">
+                                    <select value={editEndTime} onChange={(e) => setEditEndTime(e.target.value)} disabled={!editStartTime} className="flex-1 min-w-[80px] rounded-md border cursor-pointer bg-white px-2 py-1 text-xs disabled:opacity-50 focus:ring-1 focus:ring-primary outline-none">
                                       <option value="">Término</option>
                                       {endOptionsList.map(opt => <option key={opt.time} value={opt.time} disabled={opt.disabled}>{opt.time} {opt.disabled ? "(Ocupado)" : ""}</option>)}
                                     </select>
-                                    
+
                                     <div className="flex items-center gap-1 ml-auto">
                                       <button onClick={() => setEditingId(null)} className="p-1 text-muted-foreground cursor-pointer hover:bg-slate-200 rounded-md transition-colors" title="Cancelar">
                                         <X className="size-4" />
@@ -293,8 +303,8 @@ export function CartDialog({
           )}
         </div>
 
-        <div className="p-4 border-t bg-white shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex flex-col w-full md:w-[320px] gap-1.5">
+        <div className="p-4 border-t bg-white shrink-0 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-10 flex flex-col md:flex-row items-center justify-between gap-3 md:gap-6">
+          <div className="flex flex-col w-full md:w-[360px] gap-1">
             <div className="flex justify-between items-center w-full">
               <span className="text-sm font-semibold text-[#384050]">Valor para Não Associado</span>
               <span className="text-base font-bold text-[#384050]">R$ {total.toFixed(2).replace(".", ",")}</span>
@@ -303,7 +313,29 @@ export function CartDialog({
               <span className="text-sm font-bold">Valor para Associado</span>
               <span className="text-base font-bold">R$ {(total * 0.9).toFixed(2).replace(".", ",")}</span>
             </div>
+            <details className="group text-[11px] mt-0.5">
+              <summary className="inline-flex items-center gap-1 text-primary cursor-pointer hover:underline font-medium">
+                <Info className="size-3" />
+                Saiba mais sobre descontos
+              </summary>
+              <div className="mt-1.5 rounded-md bg-blue-50 border border-blue-100 p-2.5 text-xs text-blue-900 leading-relaxed">
+                <span className="font-semibold">Desconto por tempo de associação:</span>
+                <ul className="mt-1 ml-3 list-disc space-y-0.5">
+                  <li>Até 12 meses: <strong>10%</strong></li>
+                  <li>De 13 a 24 meses: <strong>20%</strong></li>
+                  <li>Acima de 24 meses: <strong>30%</strong></li>
+                </ul>
+              </div>
+            </details>
           </div>
+          {hasOrphanBookings && (
+            <div className="flex items-start gap-2 w-full rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <AlertCircle className="size-4 shrink-0 mt-0.5 text-amber-600" />
+              <span>
+                Você possui reservas pendentes que ainda não foram adicionadas ao carrinho. Volte e clique em <strong>&quot;Adicionar sala&quot;</strong> para cada sala antes de avançar.
+              </span>
+            </div>
+          )}
           <div className="flex w-full md:w-auto md:justify-end">
             <button
               onClick={() => setStep("checkout")}

@@ -1,13 +1,14 @@
 "use client"
 
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { Header } from "@/components/header"
 import { RoomList, type Room } from "@/components/room-list"
 import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
 import { CartDialog } from "@/components/cart-dialog"
 import { Card } from "@/components/ui/card"
 import { MousePointer2, Calendar as CalendarIcon, FileCheck, Sparkles, Clock } from "lucide-react"
-import { calculateRoomPrice } from "@/lib/utils"
+import { calculateRoomPrice, API_BASE_URL, formatDateToISO } from "@/lib/utils"
+import { toast } from "sonner"
 
 export interface BookingItem {
   id: string
@@ -66,33 +67,33 @@ const ReservationProcessCard = () => {
   ]
 
   return (
-    <div className="relative w-full overflow-hidden rounded-xl shadow-sm bg-white min-h-[580px] flex flex-col items-center p-12 border border-gray-100 font-sans">
+    <div className="relative w-full overflow-hidden rounded-xl shadow-sm bg-white min-h-[320px] sm:min-h-[480px] lg:min-h-[580px] flex flex-col items-center p-6 sm:p-8 lg:p-12 border border-gray-100 font-sans">
       <div className="relative z-10 w-full flex flex-col items-center">
-        <div className="text-center mb-16">
-          <h1 className="text-[42px] font-bold text-[#184689] tracking-tight mb-2 leading-tight">Processo de Reserva</h1>
-          <p className="text-gray-700/80 text-[19px] font-normal">Siga estes três passos simples para começar:</p>
+        <div className="text-center mb-8 sm:mb-12 lg:mb-16">
+          <h1 className="text-2xl sm:text-[32px] lg:text-[42px] font-bold text-[#184689] tracking-tight mb-2 leading-tight">Processo de Reserva</h1>
+          <p className="text-gray-700/80 text-sm sm:text-base lg:text-[19px] font-normal">Siga estes três passos simples para começar:</p>
         </div>
 
         <div className="relative w-full max-w-lg">
           <div className="absolute left-[15px] top-4 bottom-4 w-[1px] bg-gray-200" />
-          <div className="space-y-14">
+          <div className="space-y-8 sm:space-y-10 lg:space-y-14">
             {steps.map((step) => (
-              <div key={step.id} className="flex items-center gap-8">
+              <div key={step.id} className="flex items-center gap-4 sm:gap-6 lg:gap-8">
                 <div className="flex items-center shrink-0">
                   <div className="z-20 w-8 h-8 rounded-full bg-[#184689] flex items-center justify-center text-white text-sm font-semibold">{step.id}</div>
-                  <div className="ml-8 w-14 flex justify-center">{step.icon}</div>
+                  <div className="ml-4 sm:ml-6 lg:ml-8 w-14 flex justify-center">{step.icon}</div>
                 </div>
                 <div className="flex flex-col">
-                  <h3 className="text-[22px] font-bold text-[#384050] tracking-tight">{step.title}</h3>
-                  <p className="text-gray-700/70 text-lg font-normal leading-relaxed">{step.description}</p>
+                  <h3 className="text-base sm:text-lg lg:text-[22px] font-bold text-[#384050] tracking-tight">{step.title}</h3>
+                  <p className="text-gray-700/70 text-sm sm:text-base lg:text-lg font-normal leading-relaxed">{step.description}</p>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        <div className="mt-24 flex flex-col items-center">
-          <div className="flex items-center gap-2 text-gray-700/40 font-normal text-lg">
+        <div className="mt-10 sm:mt-16 lg:mt-24 flex flex-col items-center">
+          <div className="flex items-center gap-2 text-gray-700/40 font-normal text-sm sm:text-base lg:text-lg">
             <span>Nenhum espaço selecionado.</span>
             <Sparkles className="w-5 h-5 opacity-30" />
           </div>
@@ -105,11 +106,14 @@ const ReservationProcessCard = () => {
 export default function Home() {
   const calendarRef = useRef<HTMLDivElement>(null)
   const roomCacheRef = useRef<Record<string, Room>>({})
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   
   // Memória Cache para não gastar internet a toa
   const availabilityCacheRef = useRef<Record<string, OccupiedSlot[]>>({});
 
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
+  const selectedRoomId = selectedRoom?.id ?? null
+
   const [selectedRanges, setSelectedRanges] = useState<Record<string, { from?: Date; to?: Date }>>({})
   const [startTimes, setStartTimes] = useState<Record<string, string>>({})
   const [endTimes, setEndTimes] = useState<Record<string, string>>({})
@@ -137,20 +141,29 @@ export default function Home() {
     })
   }, [])
 
+  const handleSwitchRoom = useCallback((roomId: string) => {
+    const target = rooms.find(r => r.id === roomId)
+    if (target) {
+      setSelectedRoom(roomCacheRef.current[roomId] || target)
+    }
+  }, [rooms])
+
   useEffect(() => {
-    if (!selectedRoom?.id) return;
-    
+    if (!selectedRoomId || !selectedRoom) return;
+
     if (selectedRoom.images && selectedRoom.images.length > 1) return;
 
     const fetchRoomDetails = async () => {
       setIsRoomDetailsLoading(true);
       try {
-        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${selectedRoom.id}`;
+        const apiUrl = `${API_BASE_URL}/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${selectedRoom.id}`;
         const res = await fetch(apiUrl, { cache: 'no-store' });
         
         if (!res.ok) throw new Error("Falha ao buscar dossiê no n8n");
-        
-        const data = await res.json();
+
+        const text = await res.text();
+        if (!text) throw new Error("Resposta vazia da API");
+        const data = JSON.parse(text);
         const detailedRoom = Array.isArray(data) ? data[0] : data;
         
         if (detailedRoom && detailedRoom.id) {
@@ -166,27 +179,24 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Erro ao carregar o dossiê da sala:", error);
+        toast.error("Não foi possível carregar os detalhes da sala.")
       } finally {
         setIsRoomDetailsLoading(false);
       }
     };
 
     fetchRoomDetails();
-  }, [selectedRoom?.id]);
+  }, [selectedRoomId]);
 
   useEffect(() => {
-    if (!selectedRoom?.id) return;
+    if (!selectedRoomId || !selectedRoom) return;
 
     const fetchRange = async () => {
       const startDate = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth(), 1);
       const endDate = new Date(viewedMonth.getFullYear(), viewedMonth.getMonth() + 2, 0);
 
-      const formatDate = (d: Date) => {
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      };
-
-      const startStr = formatDate(startDate);
-      const endStr = formatDate(endDate);
+      const startStr = formatDateToISO(startDate);
+      const endStr = formatDateToISO(endDate);
 
       const cacheKey = `${selectedRoom.id}_${startStr}_${endStr}`;
 
@@ -197,7 +207,7 @@ export default function Home() {
 
       setAvailabilityLoading(true);
       try {
-        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
+        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
         
         const res = await fetch(apiUrl, { cache: 'no-store' });
         if (!res.ok) throw new Error("Falha ao buscar viabilidade do período");
@@ -228,7 +238,7 @@ export default function Home() {
     };
 
     fetchRange();
-  }, [selectedRoom?.id, viewedMonth]);
+  }, [selectedRoomId, viewedMonth]);
 
   const handleSelectRange = useCallback(({ from, to }: { from?: Date; to?: Date }) => {
     if (!selectedRoom) return;
@@ -242,34 +252,66 @@ export default function Home() {
   }, [])
 
   const handleConfirm = useCallback(() => {
-    if (selectedRoom && !cartRooms.includes(selectedRoom.id)) {
-      setCartRooms((prev) => [...prev, selectedRoom.id])
-    }
-  }, [selectedRoom, cartRooms])
+    if (!selectedRoom) return
+
+    // Find ALL rooms with completed pending bookings (not yet in cart)
+    const pendingRoomIds = [...new Set(
+      bookings
+        .filter(b => !cartRooms.includes(b.roomId) && b.startTime && b.endTime && !b.hasConflict)
+        .map(b => b.roomId)
+    )]
+
+    if (pendingRoomIds.length === 0) return
+
+    setCartRooms((prev) => [...prev, ...pendingRoomIds])
+
+    // Reset draft times for all added rooms
+    setStartTimes(prev => {
+      const next = { ...prev }
+      pendingRoomIds.forEach(id => { next[id] = "" })
+      return next
+    })
+    setEndTimes(prev => {
+      const next = { ...prev }
+      pendingRoomIds.forEach(id => { next[id] = "" })
+      return next
+    })
+
+    const addedNames = pendingRoomIds.map(id => rooms.find(r => r.id === id)?.name || "Sala").join(", ")
+    toast.success(`Sucesso! ${pendingRoomIds.length > 1 ? "Salas adicionadas" : "Sala adicionada"} ao carrinho: ${addedNames}`)
+  }, [selectedRoom, cartRooms, bookings, rooms])
 
   const roomSelectedRange = selectedRoom ? (selectedRanges[selectedRoom.id] || {}) : {}
   const roomStartTime = selectedRoom ? (startTimes[selectedRoom.id] || "") : ""
   const roomEndTime = selectedRoom ? (endTimes[selectedRoom.id] || "") : ""
-  const roomBookings = selectedRoom ? bookings.filter((b) => b.roomId === selectedRoom.id) : []
-  const roomTotal = roomBookings.reduce((acc, item) => acc + item.price, 0)
+  const roomBookings = useMemo(
+    () => selectedRoom ? bookings.filter((b) => b.roomId === selectedRoom.id) : [],
+    [bookings, selectedRoom]
+  )
+  const roomTotal = useMemo(
+    () => roomBookings.reduce((acc, item) => acc + item.price, 0),
+    [roomBookings]
+  )
 
-  const currentPriceData = selectedRoom
-    ? calculateRoomPrice(
-        selectedRoom,
-        roomSelectedRange.from || roomSelectedRange.to,
-        roomStartTime,
-        roomEndTime,
-        isAssociado ? associadoMonths : 0,
-        roomSelectedRange.from && roomSelectedRange.to ? roomSelectedRange : undefined
-      )
-    : { basePrice: 0, discountPercent: 0, discount: 0, finalPrice: 0, appliedMinimumHours: 0 }
+  const currentPriceData = useMemo(() => {
+    if (!selectedRoom) return { basePrice: 0, discountPercent: 0, discount: 0, finalPrice: 0, appliedMinimumHours: 0 }
+    const range = selectedRanges[selectedRoom.id] || {}
+    const sTime = startTimes[selectedRoom.id] || ""
+    const eTime = endTimes[selectedRoom.id] || ""
+    return calculateRoomPrice(
+      selectedRoom,
+      range.from || range.to,
+      sTime,
+      eTime,
+      isAssociado ? associadoMonths : 0,
+      range.from && range.to ? range : undefined
+    )
+  }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths])
 
   const handleRemoveBooking = useCallback((id: string) => {
     setBookings((prev) => prev.filter((item) => item.id !== id))
     setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
   }, [])
-
-  const handleEditBooking = useCallback((id: string) => {}, [])
 
   const handleSaveBooking = useCallback((id: string) => {
     setUnsavedIds((prev) => prev.filter((unsavedId) => unsavedId !== id))
@@ -301,7 +343,7 @@ export default function Home() {
     } else {
       setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
     }
-  }, [selectedRoom, isAssociado, associadoMonths, rooms])
+  }, [isAssociado, associadoMonths, rooms])
 
   const handleDaySelect = useCallback((date: Date) => {
     const performSelect = async () => { 
@@ -323,8 +365,8 @@ export default function Home() {
         if (sTime && eTime) {
           setAvailabilityLoading(true)
           try {
-            const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
-            const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
+            const dateStr = formatDateToISO(date)
+            const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
             
             const res = await fetch(apiUrl, { cache: 'no-store' })
             if (!res.ok) throw new Error("API fetch failed")
@@ -412,15 +454,11 @@ export default function Home() {
 
     setAvailabilityLoading(true);
 
-    const formatDate = (d: Date) => {
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    };
-
     try {
       const fetchPromises = roomBookingsToUpdate.map(item => {
         if (!item.selectedRange.from) return Promise.resolve({ success: false, date: null });
-        const dateStr = formatDate(item.selectedRange.from);
-        const apiUrl = `https://acipiapi.eastus.cloudapp.azure.com/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
+        const dateStr = formatDateToISO(item.selectedRange.from);
+        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
         
         return fetch(apiUrl, { cache: 'no-store' })
           .then(async res => {
@@ -471,7 +509,7 @@ export default function Home() {
       setBookings(prev => prev.map(item => {
         if (item.roomId !== selectedRoom.id) return item;
 
-        const dateStr = item.selectedRange.from ? formatDate(item.selectedRange.from) : null;
+        const dateStr = item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : null;
         const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
         
         const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots));
@@ -483,6 +521,7 @@ export default function Home() {
 
     } catch (error) {
       console.error("Failed to apply default time and validate", error);
+      toast.error("Erro ao aplicar o horário padrão. Tente novamente.")
     } finally {
       setAvailabilityLoading(false);
     }
@@ -534,17 +573,18 @@ export default function Home() {
   }, [bookings])
 
   useEffect(() => {
-    if (selectedRoom && calendarRef.current) {
-      const yOffset = -100; 
+    if (selectedRoomId && calendarRef.current) {
+      const yOffset = -100;
       const y = calendarRef.current.getBoundingClientRect().top + window.scrollY + yOffset;
       window.scrollTo({ top: y, behavior: 'smooth' });
     }
-  }, [selectedRoom?.id])
+  }, [selectedRoomId])
 
   const cartItemCount = cartRooms.length
 
   const handleRemoveFromCart = useCallback((roomId: string) => {
     setCartRooms((prev) => prev.filter((id) => id !== roomId))
+    setBookings((prev) => prev.filter((b) => b.roomId !== roomId))
   }, [])
 
   useEffect(() => {
@@ -590,20 +630,24 @@ export default function Home() {
 
   useEffect(() => {
     if (!isHydrated) return
-    const stateToSave = {
-      selectedRoom,
-      selectedRanges,
-      startTimes,
-      endTimes,
-      isAssociado,
-      associadoMonths,
-      cnpj,
-      unsavedIds,
-      cartRooms,
-      bookings,
-      occupiedSlotsByRoom, 
-    }
-    sessionStorage.setItem("acipi_booking_state", JSON.stringify(stateToSave))
+    clearTimeout(saveTimeoutRef.current)
+    saveTimeoutRef.current = setTimeout(() => {
+      const stateToSave = {
+        selectedRoom,
+        selectedRanges,
+        startTimes,
+        endTimes,
+        isAssociado,
+        associadoMonths,
+        cnpj,
+        unsavedIds,
+        cartRooms,
+        bookings,
+        occupiedSlotsByRoom,
+      }
+      sessionStorage.setItem("acipi_booking_state", JSON.stringify(stateToSave))
+    }, 500)
+    return () => clearTimeout(saveTimeoutRef.current)
   }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths, cnpj, unsavedIds, cartRooms, bookings, occupiedSlotsByRoom, isHydrated])
 
   return (
@@ -666,8 +710,10 @@ export default function Home() {
                         onConfirm={handleConfirm}
                         priceData={currentPriceData}
                         bookings={roomBookings}
+                        allBookings={bookings}
+                        allRooms={rooms}
+                        cartRooms={cartRooms}
                         onRemoveBooking={handleRemoveBooking}
-                        onEditBooking={handleEditBooking}
                         onUpdateBooking={handleUpdateBooking}
                         onSaveBooking={handleSaveBooking}
                         unsavedIds={unsavedIds}
@@ -677,6 +723,7 @@ export default function Home() {
                         availabilityLoading={availabilityLoading}
                         totalPrice={roomTotal}
                         isRoomDetailsLoading={isRoomDetailsLoading}
+                        onSwitchRoom={handleSwitchRoom}
                       />
                   </Card>
 
@@ -694,7 +741,7 @@ export default function Home() {
       </main>
 
       <footer className="border-t bg-card py-4">
-        <div className="mx-auto max-w-7xl px-4 text-center text-xs text-muted-foreground lg:px-8">
+        <div className="mx-auto max-w-[1920px] px-4 text-center text-xs text-muted-foreground lg:px-8">
           {"ACIPI \u2014 Associa\u00e7\u00e3o Comercial e Industrial de Piracicaba. Todos os direitos reservados."}
         </div>
       </footer>

@@ -3,11 +3,11 @@
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
-import { cn } from "@/lib/utils"
+import { cn, formatDateToISO } from "@/lib/utils"
 import Image from "next/image"
 import { type Room } from "@/components/room-list"
 import type { BookingItem } from "@/app/page"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Loader2 } from "lucide-react"
 
 // Tipagem para o retorno do n8n
 interface PricingData {
@@ -38,6 +38,9 @@ function FormularioContent() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [pricingData, setPricingData] = useState<PricingData | null>(null)
 
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [popup, setPopup] = useState<{ type: "success" | "error"; title: string; description: string } | null>(null)
+
   // Estados do Formulário
   const [formData, setFormData] = useState({
     razaoSocial: "",
@@ -49,10 +52,18 @@ function FormularioContent() {
     complemento: "",
     bairro: "",
     cidade: "",
-    estado: "",
+    estado: "SP",
     nomeResponsavel: "",
     emailResponsavel: "",
     telefoneResponsavel: "",
+    cargoResponsavel: "",
+    nomeEvento: "",
+    finalidadeEvento: "",
+    numeroParticipantes: "",
+    responsavelLocal: "",
+    contatoLocal: "",
+    opcaoPagamento: "",
+    observacoes: "",
   })
 
   useEffect(() => {
@@ -165,11 +176,111 @@ function FormularioContent() {
     setFormData(prev => ({ ...prev, [name]: value }));
   }
 
-  const handleFinalize = () => {
-    sessionStorage.removeItem("acipi_booking_state")
-    sessionStorage.removeItem("acipi_checkout_prep")
-    alert("Reserva enviada com sucesso!")
-    router.push("/")
+  const requiredFields: { key: keyof typeof formData; label: string }[] = [
+    { key: "razaoSocial", label: "Razão Social" },
+    { key: "cep", label: "CEP" },
+    { key: "endereco", label: "Endereço" },
+    { key: "numero", label: "Nº" },
+    { key: "bairro", label: "Bairro" },
+    { key: "cidade", label: "Cidade" },
+    { key: "nomeResponsavel", label: "Nome do Responsável" },
+    { key: "emailResponsavel", label: "E-mail do Responsável" },
+    { key: "telefoneResponsavel", label: "Telefone do Responsável" },
+    { key: "cargoResponsavel", label: "Cargo" },
+    { key: "nomeEvento", label: "Nome do Evento" },
+    { key: "finalidadeEvento", label: "Finalidade do Evento" },
+    { key: "numeroParticipantes", label: "Número de Participantes" },
+    { key: "responsavelLocal", label: "Responsável no dia do evento" },
+    { key: "contatoLocal", label: "Contato do Responsável no dia" },
+    { key: "opcaoPagamento", label: "Opção de Pagamento" },
+  ]
+
+  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "")
+
+  const handleFinalize = async () => {
+    const missing = requiredFields.filter(f => formData[f.key].trim() === "")
+    if (missing.length > 0) {
+      setPopup({
+        type: "error",
+        title: "Preencha todos os campos obrigatórios",
+        description: missing.map(f => f.label).join(", "),
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+
+    const discountMultiplier = pricingData?.is_associado && pricingData.porcentagem_desconto > 0
+      ? 1 - pricingData.porcentagem_desconto / 100
+      : 1
+
+    const requests = cartBookings.map(item => {
+      const payload = {
+        company: {
+          cnpj: cnpj.replace(/[^\d]/g, ""),
+          razao_social: formData.razaoSocial,
+          inscricao_estadual: formData.inscricaoEstadual,
+          cep: formData.cep,
+          endereco: formData.endereco,
+        },
+        user: {
+          name: formData.nomeResponsavel,
+          email: formData.emailResponsavel,
+          phone: formData.telefoneResponsavel,
+          role: formData.cargoResponsavel,
+        },
+        booking: {
+          space_id: item.roomId,
+          space_name: rooms.find(r => r.id === item.roomId)?.name || "",
+          date: item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : "",
+          startTime: item.startTime,
+          endTime: item.endTime,
+          event_name: formData.nomeEvento,
+          event_purpose: formData.finalidadeEvento,
+          estimated_attendees: parseInt(formData.numeroParticipantes, 10) || 0,
+          onsite_contact_name: formData.responsavelLocal,
+          onsite_contact_phone: formData.contatoLocal,
+          payment_method: formData.opcaoPagamento,
+          total_amount: item.price * discountMultiplier,
+        },
+      }
+
+      return fetch("https://acipiapi.eastus.cloudapp.azure.com/webhook/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      })
+    })
+
+    try {
+      const responses = await Promise.all(requests)
+      const allOk = responses.every(res => res.ok)
+
+      if (allOk) {
+        sessionStorage.removeItem("acipi_booking_state")
+        sessionStorage.removeItem("acipi_checkout_prep")
+        setPopup({
+          type: "success",
+          title: "Reserva(s) enviada(s) com sucesso!",
+          description: "Você será redirecionado para a página inicial.",
+        })
+        setTimeout(() => router.push("/"), 2500)
+      } else {
+        setPopup({
+          type: "error",
+          title: "Erro ao enviar uma ou mais reservas",
+          description: "Verifique os dados e tente novamente.",
+        })
+        setIsSubmitting(false)
+      }
+    } catch {
+      setPopup({
+        type: "error",
+        title: "Erro de conexão",
+        description: "Verifique sua internet e tente novamente.",
+      })
+      setIsSubmitting(false)
+    }
   }
 
   const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
@@ -196,7 +307,7 @@ function FormularioContent() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* Coluna da Esquerda: Resumo da Reserva */}
-        <div className="lg:col-span-4 lg:sticky lg:top-24 flex flex-col gap-4">
+        <div className="order-2 lg:order-1 lg:col-span-4 lg:sticky lg:top-24 flex flex-col gap-4">
           <div className="bg-white p-5 rounded-xl border shadow-sm flex flex-col gap-5">
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3">Resumo da Seleção</h3>
             
@@ -302,7 +413,7 @@ function FormularioContent() {
         </div>
 
         {/* Coluna da Direita: Formulário Completo */}
-        <div className="lg:col-span-8 flex flex-col gap-6">
+        <div className="order-1 lg:order-2 lg:col-span-8 flex flex-col gap-6">
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-5">Dados Cadastrais</h3>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
@@ -348,14 +459,7 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Estado</label>
-                <select name="estado" value={formData.estado} onChange={handleChange} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm">
-                  <option value="">Selecione...</option>
-                  <option value="SP">São Paulo</option>
-                  <option value="RJ">Rio de Janeiro</option>
-                  <option value="MG">Minas Gerais</option>
-                  <option value="PR">Paraná</option>
-                  <option value="outro">Outro</option>
-                </select>
+                <input name="estado" value={formData.estado} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
               </div>
             </div>
           </div>
@@ -377,7 +481,7 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cargo</label>
-                <input type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
             </div>
           </div>
@@ -387,11 +491,11 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
-                <input type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
-                <input type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Data</label>
@@ -422,19 +526,19 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Número de participantes</label>
-                <input type="number" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="numeroParticipantes" value={formData.numeroParticipantes} onChange={handleChange} type="number" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
               <div className="md:col-span-8">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsável no dia do evento</label>
-                <input type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsável</label>
-                <input type="tel" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="contatoLocal" value={formData.contatoLocal} onChange={handleChange} type="tel" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opção de pagamento</label>
-                <select className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm">
+                <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm">
                   <option value="">Selecione...</option>
                   <option value="boleto">Boleto Bancário</option>
                   <option value="cartao_credito">Cartão de Crédito</option>
@@ -443,23 +547,64 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informações adicionais do evento</label>
-                <textarea rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none"></textarea>
+                <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none"></textarea>
               </div>
             </div>
           </div>
 
-          <div className="flex justify-end pb-12 gap-3">
+          <div className="flex justify-end pb-20 sm:pb-12 gap-3">
             <button
               onClick={handleFinalize}
+              disabled={isSubmitting || !isFormValid}
               className={cn(
-                "w-full sm:w-auto rounded-lg bg-primary px-8 py-3 text-base font-bold text-primary-foreground transition-colors hover:bg-primary/90 cursor-pointer shadow-sm"
+                "w-full sm:w-auto rounded-lg bg-primary px-8 py-3 text-base font-bold text-primary-foreground transition-colors shadow-sm flex items-center justify-center gap-2",
+                isSubmitting || !isFormValid ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-primary/90"
               )}
             >
-              Concluir Reserva
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processando Reservas...
+                </>
+              ) : (
+                "Concluir Reserva"
+              )}
             </button>
           </div>
         </div>
       </div>
+
+      {/* Popup de Sucesso / Erro */}
+      {popup && (
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="animate-scale-in bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-[90vw] flex flex-col items-center gap-4 text-center">
+            {popup.type === "success" ? (
+              <svg className="w-20 h-20" viewBox="0 0 100 100" fill="none">
+                <circle cx="50" cy="50" r="45" stroke="#22c55e" strokeWidth="4" className="animate-circle" />
+                <path d="M30 52 L44 66 L70 36" stroke="#22c55e" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" fill="none" className="animate-check" />
+              </svg>
+            ) : (
+              <svg className="w-20 h-20" viewBox="0 0 100 100" fill="none">
+                <circle cx="50" cy="50" r="45" stroke="#ef4444" strokeWidth="4" className="animate-circle" />
+                <line x1="35" y1="35" x2="65" y2="65" stroke="#ef4444" strokeWidth="4" strokeLinecap="round" className="animate-x-line" />
+                <line x1="65" y1="35" x2="35" y2="65" stroke="#ef4444" strokeWidth="4" strokeLinecap="round" className="animate-x-line" />
+              </svg>
+            )}
+            <h3 className={cn("text-lg font-bold", popup.type === "success" ? "text-green-600" : "text-red-600")}>
+              {popup.title}
+            </h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">{popup.description}</p>
+            {popup.type === "error" && (
+              <button
+                onClick={() => setPopup(null)}
+                className="mt-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-bold text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
+              >
+                Entendi
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   )
 }

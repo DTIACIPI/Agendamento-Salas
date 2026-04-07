@@ -1,10 +1,10 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react"
 import Image from "next/image"
 import { Users, CheckCircle2 } from "lucide-react"
 import { Card } from "@/components/ui/card"
-import { cn } from "@/lib/utils"
+import { cn, API_BASE_URL } from "@/lib/utils"
 
 export interface PricePeriod {
   startHour: number
@@ -39,19 +39,28 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // FLIP animation refs
+  const cardRefsMap = useRef<Map<string, HTMLDivElement>>(new Map())
+  const snapshotRef = useRef<Map<string, DOMRect>>(new Map())
+  const prevSelectedRef = useRef<string | null>(null)
+
+  const setCardRef = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) cardRefsMap.current.set(id, el)
+    else cardRefsMap.current.delete(id)
+  }, [])
+
   useEffect(() => {
     const fetchSpaces = async () => {
       try {
         setIsLoading(true)
-        const response = await fetch('https://acipiapi.eastus.cloudapp.azure.com/webhook/api/spaces?page=1&limit=10')
+        const response = await fetch(`${API_BASE_URL}/webhook/api/spaces?page=1&limit=10`)
         
         if (!response.ok) {
           throw new Error('Falha ao carregar os dados do servidor.')
         }
         
         const data = await response.json()
-        console.log("Resposta bruta da API (RoomList):", data)
-        
+
         // Garante que vai pegar a lista de salas, não importa o formato que o webhook retorne
         // Extrai o array de salas da estrutura aninhada `[ { data: [...] } ]` retornada pela API.
         const rawArray = Array.isArray(data) && data.length > 0 && Array.isArray(data[0].data)
@@ -86,6 +95,61 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
     fetchSpaces()
   }, [])
 
+  // FLIP Step 1 (First): snapshot positions BEFORE reorder
+  // This runs synchronously before React commits the new DOM
+  if (selectedRoomId !== prevSelectedRef.current) {
+    snapshotRef.current = new Map()
+    cardRefsMap.current.forEach((el, id) => {
+      snapshotRef.current.set(id, el.getBoundingClientRect())
+    })
+  }
+
+  const sortedSpaces = useMemo(() => {
+    if (!selectedRoomId) return spaces
+    const selected = spaces.find(r => r.id === selectedRoomId)
+    if (!selected) return spaces
+    return [selected, ...spaces.filter(r => r.id !== selectedRoomId)]
+  }, [spaces, selectedRoomId])
+
+  // FLIP Steps 2-4 (Last, Invert, Play): after DOM update, animate from old to new position
+  useLayoutEffect(() => {
+    if (selectedRoomId === prevSelectedRef.current) return
+    if (snapshotRef.current.size === 0) {
+      prevSelectedRef.current = selectedRoomId
+      return
+    }
+
+    cardRefsMap.current.forEach((el, id) => {
+      const firstRect = snapshotRef.current.get(id)
+      if (!firstRect) return
+
+      const lastRect = el.getBoundingClientRect()
+      const deltaY = firstRect.top - lastRect.top
+
+      if (Math.abs(deltaY) < 1) return
+
+      // Invert: place element at its old position
+      el.style.transform = `translateY(${deltaY}px)`
+      el.style.transition = "none"
+
+      // Play: animate back to natural position
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          el.style.transition = "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)"
+          el.style.transform = ""
+          const cleanup = () => {
+            el.style.transition = ""
+            el.removeEventListener("transitionend", cleanup)
+          }
+          el.addEventListener("transitionend", cleanup)
+        })
+      })
+    })
+
+    snapshotRef.current = new Map()
+    prevSelectedRef.current = selectedRoomId
+  }, [selectedRoomId])
+
   if (isLoading) {
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -105,15 +169,16 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-3">
-        {spaces.map((room) => (
+        {sortedSpaces.map((room) => (
           <Card
             key={room.id}
+            ref={(el: HTMLDivElement | null) => setCardRef(room.id, el)}
             className={cn(
-              "p-0 cursor-pointer overflow-hidden rounded-xl border border-gray-200 bg-white transition-all duration-300",
+              "p-0 cursor-pointer overflow-hidden rounded-xl border",
               "shadow-[0_2px_8px_rgba(0,0,0,0.04)] hover:shadow-md",
               selectedRoomId === room.id
-                ? "ring-2 ring-primary"
-                : "hover:ring-1 hover:ring-primary/20",
+                ? "border-primary ring-2 ring-primary/20 bg-primary/5"
+                : "border-gray-200 bg-white hover:ring-1 hover:ring-primary/20",
               !room.available && "opacity-75 grayscale-[0.5]"
             )}
             onClick={() => onSelectRoom(room)}
@@ -121,13 +186,13 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
             <div className="flex flex-col sm:flex-row items-stretch">
               
               {/* Container da Imagem */}
-              <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-48 sm:h-auto sm:w-[42%] sm:max-w-[320px] aspect-video sm:aspect-[4/3]">
+              <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-44 sm:h-auto sm:w-[42%] sm:max-w-[320px] aspect-video">
                 <Image
                   src={room.image}
                   alt={room.name}
                   fill
                   className="object-cover"
-                  sizes="192px"
+                  sizes="(max-width: 640px) 100vw, 320px"
                 />
               </div>
 
@@ -174,17 +239,16 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
                     Comodidades
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {(room.amenities.length > 0 ? room.amenities : ["Wi-Fi", "Projetor", "Ar Condicionado"]).slice(0, 3).map((amenity) => (
+                    {room.amenities.length > 0 ? room.amenities.slice(0, 3).map((amenity) => (
                       <span
                         key={amenity}
-                        className={cn(
-                          "flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap",
-                          room.amenities.length === 0 && "opacity-60"
-                        )}
+                        className="flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap"
                       >
                         {amenity}
                       </span>
-                    ))}
+                    )) : (
+                      <span className="text-[10px] text-slate-400 italic">Nenhuma informada</span>
+                    )}
                   </div>
                 </div>
 

@@ -2,8 +2,14 @@ import { clsx, type ClassValue } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 import type { Room } from '@/components/room-list'
 
+export const API_BASE_URL = 'https://acipiapi.eastus.cloudapp.azure.com'
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
+}
+
+export function formatDateToISO(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export function calculateDurationHours(start: string, end: string): number {
