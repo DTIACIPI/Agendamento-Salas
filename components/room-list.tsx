@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react"
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, memo } from "react"
 import Image from "next/image"
 import { Users, CheckCircle2 } from "lucide-react"
 import { Card } from "@/components/ui/card"
@@ -34,7 +34,7 @@ interface RoomListProps {
   onLoadedSpaces?: (spaces: Room[]) => void
 }
 
-export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomListProps) {
+export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomListProps) {
   const [spaces, setSpaces] = useState<Room[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -50,25 +50,26 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
   }, [])
 
   useEffect(() => {
+    const controller = new AbortController()
+
     const fetchSpaces = async () => {
       try {
         setIsLoading(true)
-        const response = await fetch(`${API_BASE_URL}/webhook/api/spaces?page=1&limit=10`)
-        
+        const response = await fetch(`${API_BASE_URL}/webhook/api/spaces?page=1&limit=10`, {
+          signal: controller.signal,
+        })
+
         if (!response.ok) {
           throw new Error('Falha ao carregar os dados do servidor.')
         }
-        
+
         const data = await response.json()
 
-        // Garante que vai pegar a lista de salas, não importa o formato que o webhook retorne
-        // Extrai o array de salas da estrutura aninhada `[ { data: [...] } ]` retornada pela API.
         const rawArray = Array.isArray(data) && data.length > 0 && Array.isArray(data[0].data)
           ? data[0].data
           : [];
-        
-        const spacesData: Room[] = rawArray.map((apiRoom: any) => {
-          return {
+
+        const spacesData: Room[] = rawArray.map((apiRoom: any) => ({
             id: apiRoom.id,
             name: apiRoom.name,
             description: apiRoom.description,
@@ -81,11 +82,11 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
             pricePeriodsWeekday: Array.isArray(apiRoom.pricePeriodsWeekday) ? apiRoom.pricePeriodsWeekday : [],
             pricePeriodsSaturday: Array.isArray(apiRoom.pricePeriodsSaturday) ? apiRoom.pricePeriodsSaturday : [],
             available: apiRoom.available === 1 || apiRoom.available === true,
-          }
-        })
+        }))
         setSpaces(spacesData)
         if (onLoadedSpaces) onLoadedSpaces(spacesData)
       } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return
         setError(err instanceof Error ? err.message : 'Erro desconhecido')
       } finally {
         setIsLoading(false)
@@ -93,6 +94,7 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
     }
 
     fetchSpaces()
+    return () => controller.abort()
   }, [])
 
   // FLIP Step 1 (First): snapshot positions BEFORE reorder
@@ -259,4 +261,4 @@ export function RoomList({ selectedRoomId, onSelectRoom, onLoadedSpaces }: RoomL
       </div>
     </div>
   )
-}
+})

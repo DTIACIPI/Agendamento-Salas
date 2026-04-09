@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card"
 import { MousePointer2, Calendar as CalendarIcon, FileCheck, Sparkles, Clock } from "lucide-react"
 import { calculateRoomPrice, API_BASE_URL, formatDateToISO } from "@/lib/utils"
 import { toast } from "sonner"
+import React from "react"
 
 export interface BookingItem {
   id: string
@@ -18,12 +19,13 @@ export interface BookingItem {
   endTime: string
   price: number
   hasConflict?: boolean
+  confirmedToCart?: boolean
 }
 
 export interface OccupiedSlot {
-  date: string; // "YYYY-MM-DD"
-  startTime: string; // "HH:mm"
-  endTime: string; // "HH:mm"
+  date: string;
+  startTime: string;
+  endTime: string;
 }
 
 const ReservationProcessCard = () => {
@@ -107,8 +109,10 @@ export default function Home() {
   const calendarRef = useRef<HTMLDivElement>(null)
   const roomCacheRef = useRef<Record<string, Room>>({})
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const bookingsRef = useRef<BookingItem[]>([])
+  const cartRoomsRef = useRef<string[]>([])
+  const roomsRef = useRef<Room[]>([])
   
-  // Memória Cache para não gastar internet a toa
   const availabilityCacheRef = useRef<Record<string, OccupiedSlot[]>>({});
 
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null)
@@ -127,12 +131,15 @@ export default function Home() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [rooms, setRooms] = useState<Room[]>([])
   
-  // DICIONÁRIO ISOLADO POR SALA
   const [occupiedSlotsByRoom, setOccupiedSlotsByRoom] = useState<Record<string, OccupiedSlot[]>>({});
   
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [isRoomDetailsLoading, setIsRoomDetailsLoading] = useState(false);
   const [viewedMonth, setViewedMonth] = useState(new Date());
+
+  bookingsRef.current = bookings
+  cartRoomsRef.current = cartRooms
+  roomsRef.current = rooms
 
   const handleSelectRoom = useCallback((room: Room) => {
     setSelectedRoom((prev) => {
@@ -148,9 +155,28 @@ export default function Home() {
     }
   }, [rooms])
 
+  const handleStartTimeChange = useCallback((time: string) => {
+    if (selectedRoom) setStartTimes(prev => ({ ...prev, [selectedRoom.id]: time }))
+  }, [selectedRoom])
+
+  const handleEndTimeChange = useCallback((time: string) => {
+    if (selectedRoom) setEndTimes(prev => ({ ...prev, [selectedRoom.id]: time }))
+  }, [selectedRoom])
+
+  const handleToggleAssociado = useCallback(() => {
+    setIsAssociado((v) => {
+      if (v) {
+        setCnpj("")
+        setAssociadoMonths(0)
+      }
+      return !v
+    })
+  }, [])
+
+  const handleCartOpen = useCallback(() => setIsCartOpen(true), [])
+
   useEffect(() => {
     if (!selectedRoomId || !selectedRoom) return;
-
     if (selectedRoom.images && selectedRoom.images.length > 1) return;
 
     const fetchRoomDetails = async () => {
@@ -212,7 +238,6 @@ export default function Home() {
         const res = await fetch(apiUrl, { cache: 'no-store' });
         if (!res.ok) throw new Error("Falha ao buscar viabilidade do período");
         
-        // 🔥 BLINDAGEM: Lê como texto puro primeiro
         const textData = await res.text();
         
         if (!textData) {
@@ -247,25 +272,52 @@ export default function Home() {
     setEndTimes(prev => ({ ...prev, [selectedRoom.id]: "" }))
   }, [selectedRoom])
 
-  const handleSelectOther = useCallback(() => {
-    setSelectedRoom(null)
-  }, [])
-
   const handleConfirm = useCallback(() => {
     if (!selectedRoom) return
 
-    // Find ALL rooms with completed pending bookings (not yet in cart)
-    const pendingRoomIds = [...new Set(
-      bookings
-        .filter(b => !cartRooms.includes(b.roomId) && b.startTime && b.endTime && !b.hasConflict)
-        .map(b => b.roomId)
-    )]
+    const currentBookings = bookingsRef.current
+    const currentCartRooms = cartRoomsRef.current
 
-    if (pendingRoomIds.length === 0) return
+    // Pega TODOS os rascunhos pendentes de TODAS as salas
+    const pendingBookings = currentBookings.filter(
+      b => b.startTime && b.endTime && !b.hasConflict && !b.confirmedToCart
+    )
 
-    setCartRooms((prev) => [...prev, ...pendingRoomIds])
+    if (pendingBookings.length === 0) {
+      toast.error("Nenhum horário definido.", { description: "Defina horários válidos para avançar." });
+      return;
+    }
 
-    // Reset draft times for all added rooms
+    const pendingRoomIds = [...new Set(pendingBookings.map(b => b.roomId))]
+
+    setBookings(prev => {
+      let next = [...prev];
+
+      pendingBookings.forEach(pending => {
+        // Encontra se esse dia JÁ EXISTIA no carrinho para a mesma sala
+        const existingConfirmedIdx = next.findIndex(b =>
+          b.roomId === pending.roomId &&
+          b.confirmedToCart &&
+          b.selectedRange.from?.toDateString() === pending.selectedRange.from?.toDateString() &&
+          b.id !== pending.id
+        );
+
+        // Remove o velho do carrinho para não duplicar
+        if (existingConfirmedIdx !== -1) {
+          next.splice(existingConfirmedIdx, 1);
+        }
+
+        // Marca o rascunho como confirmado
+        const pIdx = next.findIndex(b => b.id === pending.id);
+        if (pIdx !== -1) {
+          next[pIdx] = { ...next[pIdx], confirmedToCart: true };
+        }
+      });
+
+      return next;
+    });
+
+    // Reseta horários padrão de todas as salas confirmadas
     setStartTimes(prev => {
       const next = { ...prev }
       pendingRoomIds.forEach(id => { next[id] = "" })
@@ -277,17 +329,31 @@ export default function Home() {
       return next
     })
 
-    const addedNames = pendingRoomIds.map(id => rooms.find(r => r.id === id)?.name || "Sala").join(", ")
-    toast.success(`Sucesso! ${pendingRoomIds.length > 1 ? "Salas adicionadas" : "Sala adicionada"} ao carrinho: ${addedNames}`)
-  }, [selectedRoom, cartRooms, bookings, rooms])
+    // Adiciona ao carrinho salas que ainda não estavam
+    const newRoomIds = pendingRoomIds.filter(id => !currentCartRooms.includes(id))
+    if (newRoomIds.length > 0) {
+      setCartRooms(prev => [...prev, ...newRoomIds])
+    }
+
+    const isUpdate = newRoomIds.length === 0
+    toast.success(isUpdate ? "Carrinho atualizado!" : "Adicionado ao carrinho!")
+  }, [selectedRoom])
 
   const roomSelectedRange = selectedRoom ? (selectedRanges[selectedRoom.id] || {}) : {}
   const roomStartTime = selectedRoom ? (startTimes[selectedRoom.id] || "") : ""
   const roomEndTime = selectedRoom ? (endTimes[selectedRoom.id] || "") : ""
+  
+  // O Calendário só mostra os rascunhos que ainda não foram para o carrinho
   const roomBookings = useMemo(
-    () => selectedRoom ? bookings.filter((b) => b.roomId === selectedRoom.id) : [],
+    () => selectedRoom ? bookings.filter((b) => b.roomId === selectedRoom.id && !b.confirmedToCart) : [],
     [bookings, selectedRoom]
   )
+  
+  const pendingGlobalBookings = useMemo(
+    () => bookings.filter(b => !b.confirmedToCart),
+    [bookings]
+  )
+
   const roomTotal = useMemo(
     () => roomBookings.reduce((acc, item) => acc + item.price, 0),
     [roomBookings]
@@ -349,97 +415,101 @@ export default function Home() {
     const performSelect = async () => { 
       if (!selectedRoom) return
 
-      const sTime = startTimes[selectedRoom.id] || ""
-      const eTime = endTimes[selectedRoom.id] || ""
-
-      const existingBooking = bookings.find(
-        (b) => b.roomId === selectedRoom.id && b.selectedRange.from?.toDateString() === date.toDateString()
+      // Procura APENAS nos rascunhos pendentes. Ignora 100% se já está no carrinho ou não.
+      const pendingBooking = bookings.find(
+        (b) => b.roomId === selectedRoom.id && b.selectedRange.from?.toDateString() === date.toDateString() && !b.confirmedToCart
       )
 
-      if (existingBooking) {
-        handleRemoveBooking(existingBooking.id)
-      } else {
-        let price = 0
-        let hasConflict = false
+      // Se clicou num rascunho que já está na tela, desmarca da tela (toggle)
+      if (pendingBooking) {
+        handleRemoveBooking(pendingBooking.id)
+        return
+      }
 
-        if (sTime && eTime) {
-          setAvailabilityLoading(true)
-          try {
-            const dateStr = formatDateToISO(date)
-            const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
-            
-            const res = await fetch(apiUrl, { cache: 'no-store' })
-            if (!res.ok) throw new Error("API fetch failed")
-            
-            // 🔥 BLINDAGEM NO SINGLE FETCH
-            const textData = await res.text();
-            let availabilityData: any = { success: false, occupied: [] };
-            
-            if (textData) {
-              availabilityData = JSON.parse(textData);
-            }
+      // Se não é rascunho, cria um item NOVO.
+      const sTime = startTimes[selectedRoom.id] || ""
+      const eTime = endTimes[selectedRoom.id] || ""
+      let price = 0
+      let hasConflict = false
 
-            let daySpecificOccupiedSlots: OccupiedSlot[] = []
-            if (availabilityData.success && availabilityData.occupied) {
-              daySpecificOccupiedSlots = availabilityData.occupied
-              
-              setOccupiedSlotsByRoom((prev) => {
-                const roomSlots = prev[selectedRoom.id] || [];
-                const filtered = roomSlots.filter((s) => s.date !== dateStr)
-                return { ...prev, [selectedRoom.id]: [...filtered, ...daySpecificOccupiedSlots] }
-              })
-              
-              const cacheKeys = Object.keys(availabilityCacheRef.current);
-              for (const key of cacheKeys) {
-                if (key.includes(selectedRoom.id)) {
-                  const cachedArray = availabilityCacheRef.current[key];
-                  const filteredCache = cachedArray.filter((s) => s.date !== dateStr);
-                  availabilityCacheRef.current[key] = [...filteredCache, ...daySpecificOccupiedSlots];
-                }
+      if (sTime && eTime) {
+        setAvailabilityLoading(true)
+        try {
+          const dateStr = formatDateToISO(date)
+          const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
+          
+          const res = await fetch(apiUrl, { cache: 'no-store' })
+          if (!res.ok) throw new Error("API fetch failed")
+          
+          const textData = await res.text();
+          let availabilityData: any = { success: false, occupied: [] };
+          
+          if (textData) {
+            availabilityData = JSON.parse(textData);
+          }
+
+          let daySpecificOccupiedSlots: OccupiedSlot[] = []
+          if (availabilityData.success && availabilityData.occupied) {
+            daySpecificOccupiedSlots = availabilityData.occupied
+            
+            setOccupiedSlotsByRoom((prev) => {
+              const roomSlots = prev[selectedRoom.id] || [];
+              const filtered = roomSlots.filter((s) => s.date !== dateStr)
+              return { ...prev, [selectedRoom.id]: [...filtered, ...daySpecificOccupiedSlots] }
+            })
+            
+            const cacheKeys = Object.keys(availabilityCacheRef.current);
+            for (const key of cacheKeys) {
+              if (key.includes(selectedRoom.id)) {
+                const cachedArray = availabilityCacheRef.current[key];
+                const filteredCache = cachedArray.filter((s) => s.date !== dateStr);
+                availabilityCacheRef.current[key] = [...filteredCache, ...daySpecificOccupiedSlots];
               }
             }
+          }
 
-            if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots)) {
-              hasConflict = true
-            }
+          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots)) {
+            hasConflict = true
+          }
 
+          const priceData = calculateRoomPrice(
+            selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
+          )
+          price = priceData.finalPrice
+        } catch (error) {
+          hasConflict = false
+          try {
             const priceData = calculateRoomPrice(
               selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
             )
             price = priceData.finalPrice
-          } catch (error) {
-            hasConflict = false
-            try {
-              const priceData = calculateRoomPrice(
-                selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
-              )
-              price = priceData.finalPrice
-            } catch (e) {
-              price = 0
-            }
-          } finally {
-            setAvailabilityLoading(false)
+          } catch (e) {
+            price = 0
           }
+        } finally {
+          setAvailabilityLoading(false)
         }
-
-        const newItem: BookingItem = {
-          id: Math.random().toString(36).substr(2, 9),
-          roomId: selectedRoom.id,
-          selectedRange: { from: date, to: date },
-          startTime: sTime,
-          endTime: eTime,
-          price: price,
-          hasConflict
-        }
-        setBookings((prev) => {
-          const newBookings = [...prev, newItem]
-          return newBookings.sort((a, b) => {
-            const dateA = a.selectedRange.from?.getTime() ?? 0
-            const dateB = b.selectedRange.from?.getTime() ?? 0
-            return dateA - dateB
-          })
-        })
       }
+
+      const newItem: BookingItem = {
+        id: Math.random().toString(36).substr(2, 9),
+        roomId: selectedRoom.id,
+        selectedRange: { from: date, to: date },
+        startTime: sTime,
+        endTime: eTime,
+        price: price,
+        hasConflict,
+        confirmedToCart: false, // É apenas um rascunho novo!
+      }
+      
+      setBookings((prev) => {
+        const newBookings = [...prev, newItem]
+        return newBookings.sort((a, b) => {
+          const dateA = a.selectedRange.from?.getTime() ?? 0
+          const dateB = b.selectedRange.from?.getTime() ?? 0
+          return dateA - dateB
+        })
+      })
     }
     performSelect();
   }, [bookings, startTimes, endTimes, selectedRoom, isAssociado, associadoMonths, handleRemoveBooking])
@@ -449,7 +519,8 @@ export default function Home() {
     setStartTimes(prev => ({ ...prev, [selectedRoom.id]: start }))
     setEndTimes(prev => ({ ...prev, [selectedRoom.id]: end }))
     
-    const roomBookingsToUpdate = bookings.filter(item => item.roomId === selectedRoom.id);
+    // Atualiza APENAS os rascunhos que estão na tela
+    const roomBookingsToUpdate = bookings.filter(item => item.roomId === selectedRoom.id && !item.confirmedToCart);
     if (roomBookingsToUpdate.length === 0) return;
 
     setAvailabilityLoading(true);
@@ -463,11 +534,8 @@ export default function Home() {
         return fetch(apiUrl, { cache: 'no-store' })
           .then(async res => {
             if (!res.ok) throw new Error(`API fetch failed for ${dateStr}`);
-            
-            // 🔥 BLINDAGEM NO MULTI FETCH
             const textData = await res.text();
             if (!textData) return { success: false, occupied: [] };
-            
             return JSON.parse(textData);
           })
           .then(data => ({ ...data, date: dateStr }));
@@ -507,7 +575,7 @@ export default function Home() {
       }
 
       setBookings(prev => prev.map(item => {
-        if (item.roomId !== selectedRoom.id) return item;
+        if (item.roomId !== selectedRoom.id || item.confirmedToCart) return item;
 
         const dateStr = item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : null;
         const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
@@ -546,30 +614,7 @@ export default function Home() {
   }, [isAssociado, associadoMonths, rooms])
 
   useEffect(() => {
-    setCartRooms(prev => prev.filter(roomId => bookings.some(b => b.roomId === roomId)))
-    
-    setStartTimes(prev => {
-      const next = { ...prev }
-      let changed = false
-      Object.keys(next).forEach(roomId => {
-        if (!bookings.some(b => b.roomId === roomId) && next[roomId] !== "") {
-          next[roomId] = ""
-          changed = true
-        }
-      })
-      return changed ? next : prev
-    })
-    setEndTimes(prev => {
-      const next = { ...prev }
-      let changed = false
-      Object.keys(next).forEach(roomId => {
-        if (!bookings.some(b => b.roomId === roomId) && next[roomId] !== "") {
-          next[roomId] = ""
-          changed = true
-        }
-      })
-      return changed ? next : prev
-    })
+    setCartRooms(prev => prev.filter(roomId => bookings.some(b => b.roomId === roomId && b.confirmedToCart)))
   }, [bookings])
 
   useEffect(() => {
@@ -652,7 +697,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <Header cartCount={cartItemCount} onCartClick={() => setIsCartOpen(true)} />
+      <Header cartCount={cartItemCount} onCartClick={handleCartOpen} />
 
       <main className="mx-auto w-full max-w-[1920px] flex-1 px-4 py-6 lg:px-8">
 
@@ -689,20 +734,10 @@ export default function Home() {
                         onSelectRange={handleSelectRange}
                         startTime={roomStartTime}
                         endTime={roomEndTime}
-                        onStartTimeChange={(time) => {
-                          if (selectedRoom) setStartTimes(prev => ({ ...prev, [selectedRoom.id]: time }))
-                        }}
-                        onEndTimeChange={(time) => {
-                          if (selectedRoom) setEndTimes(prev => ({ ...prev, [selectedRoom.id]: time }))
-                        }}
+                        onStartTimeChange={handleStartTimeChange}
+                        onEndTimeChange={handleEndTimeChange}
                         isAssociado={isAssociado}
-                        onToggleAssociado={() => {
-                          setIsAssociado((v) => !v)
-                          if (isAssociado) {
-                            setCnpj("")
-                            setAssociadoMonths(0)
-                          }
-                        }}
+                        onToggleAssociado={handleToggleAssociado}
                         associadoMonths={associadoMonths}
                         onAssociadoMonthsChange={setAssociadoMonths}
                         cnpj={cnpj}
@@ -710,7 +745,7 @@ export default function Home() {
                         onConfirm={handleConfirm}
                         priceData={currentPriceData}
                         bookings={roomBookings}
-                        allBookings={bookings}
+                        allBookings={pendingGlobalBookings} 
                         allRooms={rooms}
                         cartRooms={cartRooms}
                         onRemoveBooking={handleRemoveBooking}
@@ -739,13 +774,6 @@ export default function Home() {
           </div>
         </div>
       </main>
-
-      <footer className="border-t bg-card py-4">
-        <div className="mx-auto max-w-[1920px] px-4 text-center text-xs text-muted-foreground lg:px-8">
-          {"ACIPI \u2014 Associa\u00e7\u00e3o Comercial e Industrial de Piracicaba. Todos os direitos reservados."}
-        </div>
-      </footer>
-
       <CartDialog
         open={isCartOpen}
         onOpenChange={setIsCartOpen}
@@ -753,13 +781,10 @@ export default function Home() {
         bookings={bookings}
         rooms={rooms}
         occupiedSlotsByRoom={occupiedSlotsByRoom}
-        onUpdateBooking={handleUpdateBooking}
         onRemoveRoom={handleRemoveFromCart}
-        onCheckout={() => {
-          setIsCartOpen(false)
-          setCartRooms([])
-          setBookings([])
-        }}
+        onRemoveBooking={handleRemoveBooking}
+        onUpdateBooking={handleUpdateBooking}
+        onCheckout={() => setIsCartOpen(false)}
       />
     </div>
   )

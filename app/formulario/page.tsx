@@ -37,6 +37,12 @@ function FormularioContent() {
   const [rooms, setRooms] = useState<Room[]>([])
   const [isHydrated, setIsHydrated] = useState(false)
   const [pricingData, setPricingData] = useState<PricingData | null>(null)
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string
+    discount_type: "percentage" | "fixed"
+    discount_value: number
+    description?: string
+  } | null>(null)
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [popup, setPopup] = useState<{ type: "success" | "error"; title: string; description: string } | null>(null)
@@ -100,6 +106,10 @@ function FormularioContent() {
 
         if (parsedPrep.pricing && parsedPrep.pricing.success) {
           setPricingData(parsedPrep.pricing)
+        }
+
+        if (parsedPrep.appliedCoupon) {
+          setAppliedCoupon(parsedPrep.appliedCoupon)
         }
 
         if (parsedPrep.company) {
@@ -214,7 +224,29 @@ function FormularioContent() {
       ? 1 - pricingData.porcentagem_desconto / 100
       : 1
 
+    // Fator do cupom: percentual aplica a mesma % em cada item
+    const couponMultiplier = appliedCoupon?.discount_type === "percentage"
+      ? 1 - appliedCoupon.discount_value / 100
+      : 1
+
     const requests = cartBookings.map(item => {
+      const priceAfterAssociation = item.price * discountMultiplier
+
+      // Para cupom fixo, distribui proporcionalmente entre os itens
+      let itemCouponDiscount = 0
+      if (appliedCoupon) {
+        if (appliedCoupon.discount_type === "percentage") {
+          itemCouponDiscount = priceAfterAssociation * (1 - couponMultiplier)
+        } else {
+          // Fixo: proporcional ao peso deste item no total
+          const totalAfterAssociation = cartBookings.reduce((sum, b) => sum + b.price * discountMultiplier, 0)
+          const proportion = totalAfterAssociation > 0 ? priceAfterAssociation / totalAfterAssociation : 0
+          itemCouponDiscount = Math.min(appliedCoupon.discount_value * proportion, priceAfterAssociation)
+        }
+      }
+
+      const finalAmount = priceAfterAssociation - itemCouponDiscount
+
       const payload = {
         company: {
           cnpj: cnpj.replace(/[^\d]/g, ""),
@@ -241,7 +273,9 @@ function FormularioContent() {
           onsite_contact_name: formData.responsavelLocal,
           onsite_contact_phone: formData.contatoLocal,
           payment_method: formData.opcaoPagamento,
-          total_amount: item.price * discountMultiplier,
+          total_amount: finalAmount,
+          coupon_code: appliedCoupon?.code || null,
+          coupon_discount: itemCouponDiscount > 0 ? itemCouponDiscount : null,
         },
       }
 
@@ -286,6 +320,15 @@ function FormularioContent() {
   const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
 
   const formatMoney = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+  // Cálculo do desconto do cupom
+  const valorBase = pricingData?.valorTotalGeral ?? 0
+  const valorDescontoCupom = appliedCoupon
+    ? appliedCoupon.discount_type === "percentage"
+      ? valorBase * (appliedCoupon.discount_value / 100)
+      : Math.min(appliedCoupon.discount_value, valorBase)
+    : 0
+  const valorFinalComCupom = valorBase - valorDescontoCupom
 
   return (
     <main className="mx-auto w-full max-w-[1920px] flex-1 px-4 py-8 lg:px-8">
@@ -394,14 +437,24 @@ function FormularioContent() {
                       </div>
                       {pricingData.descontoTotalGeral > 0 && (
                         <div className="flex justify-between text-sm text-green-600 font-medium">
-                          <span>Total de Descontos</span>
+                          <span>Desconto Associado</span>
                           <span>-{formatMoney(pricingData.descontoTotalGeral)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Subtotal</span>
+                        <span>{formatMoney(valorBase)}</span>
+                      </div>
+                      {appliedCoupon && valorDescontoCupom > 0 && (
+                        <div className="flex justify-between items-center text-sm text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100 font-medium">
+                          <span>Cupom ({appliedCoupon.code})</span>
+                          <span>-{formatMoney(valorDescontoCupom)}</span>
                         </div>
                       )}
                       <div className="flex justify-between items-end border-t pt-3 mt-1">
                         <span className="text-base font-bold text-[#384050]">Valor Final</span>
                         <span className="text-2xl font-black text-primary leading-none">
-                          {formatMoney(pricingData.valorTotalGeral)}
+                          {formatMoney(valorFinalComCupom)}
                         </span>
                       </div>
                     </div>

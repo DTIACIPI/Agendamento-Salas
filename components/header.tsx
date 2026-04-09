@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import Image from "next/image"
 import { ClipboardList } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -9,7 +10,7 @@ interface HeaderProps {
   onCartClick?: () => void
 }
 
-export function Header({ cartCount = 0, onCartClick }: HeaderProps) {
+export const Header = memo(function Header({ cartCount = 0, onCartClick }: HeaderProps) {
   return (
     <header className="sticky top-0 z-40 border-b bg-card">
       <div className="mx-auto flex max-w-[1920px] items-center justify-between px-4 py-3 lg:px-8">
@@ -52,4 +53,4 @@ export function Header({ cartCount = 0, onCartClick }: HeaderProps) {
       </div>
     </header>
   )
-}
+})

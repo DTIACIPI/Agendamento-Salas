@@ -30,7 +30,7 @@ export default function RootLayout({
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`} suppressHydrationWarning>
         {children}
-        <Toaster richColors position="top-right" />
+        <Toaster richColors position="top-center" />
         <AnalyticsWrapper />
         
         {/* Botão Flutuante de Atendimento WhatsApp Global */}

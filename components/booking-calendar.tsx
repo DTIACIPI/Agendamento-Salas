@@ -218,9 +218,13 @@ export function BookingCalendar({
   // Reset carousel when room changes
   useEffect(() => {
     setCarouselIndex(0)
+  }, [room.id])
+
+  // Sync draft times when parent resets them
+  useEffect(() => {
     setDraftStartTime(startTime)
     setDraftEndTime(endTime)
-  }, [room.id, startTime, endTime]) // Sync if parent resets
+  }, [startTime, endTime])
 
   const draftStartOptions = useMemo(() => {
     return TIME_OPTIONS.slice(0, -1).map(time => ({ time, disabled: false }));
@@ -231,23 +235,20 @@ export function BookingCalendar({
     [draftStartTime]
   )
 
-  const hasIncompleteItems = bookings.some(b => !b.startTime || !b.endTime)
-  const hasConflicts = bookings.some(b => b.hasConflict)
-  const isCurrentRoomInCart = cartRooms.includes(room.id)
-
-  // All pending bookings (not in cart) grouped by room, current room first
-  // Current room: show all items (even mid-edit with empty endTime)
-  // Other rooms: only show items with complete times
+  const hasIncompleteItems = useMemo(() => bookings.some(b => !b.startTime || !b.endTime), [bookings])
+  const hasConflicts = useMemo(() => bookings.some(b => b.hasConflict), [bookings])
+  // All bookings grouped by room, current room first
+  // Current room pending: show all items (even mid-edit with empty endTime)
+  // Other rooms + confirmed: only show items with complete times
   const pendingByRoom = useMemo(() => {
-    const pending = allBookings.filter(b => {
-      if (cartRooms.includes(b.roomId)) return false
-      // Current room: show if item has startTime (mid-edit ok) or room default time is set
-      if (b.roomId === room.id) return b.startTime || (startTime && endTime)
-      // Other rooms: only show complete items
+    const visible = allBookings.filter(b => {
+      // Current room, not confirmed: show if has startTime or room default time is set
+      if (b.roomId === room.id && !b.confirmedToCart) return b.startTime || (startTime && endTime)
+      // Confirmed items (any room) or other rooms pending: show only complete items
       return b.startTime && b.endTime
     })
-    const groups = new Map<string, typeof pending>()
-    for (const b of pending) {
+    const groups = new Map<string, typeof visible>()
+    for (const b of visible) {
       const list = groups.get(b.roomId) || []
       list.push(b)
       groups.set(b.roomId, list)
@@ -257,7 +258,7 @@ export function BookingCalendar({
       list.sort((a, b) => (a.selectedRange.from?.getTime() ?? 0) - (b.selectedRange.from?.getTime() ?? 0))
     }
     // Current room first, then others
-    const sorted: { roomId: string; roomName: string; items: typeof pending }[] = []
+    const sorted: { roomId: string; roomName: string; items: typeof visible }[] = []
     if (groups.has(room.id)) {
       sorted.push({ roomId: room.id, roomName: room.name, items: groups.get(room.id)! })
     }
@@ -267,14 +268,18 @@ export function BookingCalendar({
       sorted.push({ roomId: rid, roomName: r?.name || "Sala", items })
     }
     return sorted
-  }, [allBookings, cartRooms, room.id, room.name, allRooms, startTime, endTime])
+  }, [allBookings, room.id, room.name, allRooms, startTime, endTime])
 
-  // canConfirm: current room must be ready AND all other pending bookings must also be complete
+  // canConfirm: all unconfirmed bookings must be complete (have times, no conflicts)
   const allPendingComplete = useMemo(
-    () => allBookings.filter(b => !cartRooms.includes(b.roomId)).every(b => b.startTime && b.endTime && !b.hasConflict),
-    [allBookings, cartRooms]
+    () => allBookings.filter(b => !b.confirmedToCart).every(b => b.startTime && b.endTime && !b.hasConflict),
+    [allBookings]
   )
-  const canConfirm = bookings.length > 0 && !hasIncompleteItems && !hasConflicts && !isCurrentRoomInCart && allPendingComplete
+  const hasPendingBookings = useMemo(
+    () => allBookings.some(b => !b.confirmedToCart),
+    [allBookings]
+  )
+  const canConfirm = hasPendingBookings && !hasIncompleteItems && !hasConflicts && allPendingComplete
 
   const roomImages = useMemo(() => {
     return room.images && room.images.length > 0 ? room.images : [room.image];
@@ -312,17 +317,17 @@ export function BookingCalendar({
       isDateFullyBooked
   ], [todayStart, isDateFullyBooked]);
 
-  const handlePrevImage = () => {
+  const handlePrevImage = useCallback(() => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
-  }
+  }, [roomImages.length])
 
-  const handleNextImage = () => {
+  const handleNextImage = useCallback(() => {
     setCarouselIndex((prev) => (prev === roomImages.length - 1 ? 0 : prev + 1))
-  }
+  }, [roomImages.length])
 
-  const handleDefineTime = () => {
+  const handleDefineTime = useCallback(() => {
     onApplyDefaultTime(draftStartTime, draftEndTime)
-  }
+  }, [onApplyDefaultTime, draftStartTime, draftEndTime])
 
   return (
     <div className="flex flex-col gap-2">
@@ -676,6 +681,8 @@ export function BookingCalendar({
           {/* Pending bookings grouped by room, current room first */}
           {pendingByRoom.map((group, groupIdx) => {
             const isCurrentRoom = group.roomId === room.id
+            const hasConfirmedItems = group.items.some(b => b.confirmedToCart)
+            const hasPendingItems = group.items.some(b => !b.confirmedToCart)
             return (
               <div key={group.roomId} className={cn(
                 "rounded-lg border border-border bg-card overflow-hidden",
@@ -685,6 +692,9 @@ export function BookingCalendar({
                 <div className="flex items-center gap-1.5 border-b border-border/60 px-3 py-2.5">
                   <span className="text-sm font-bold text-[#384050]">{group.roomName}</span>
                   <span className="text-[10px] text-muted-foreground font-medium">({group.items.length} {group.items.length === 1 ? "dia" : "dias"})</span>
+                  {hasConfirmedItems && (
+                    <span className="text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">No carrinho</span>
+                  )}
                   {!isCurrentRoom && (
                     <button
                       onClick={() => onSwitchRoom?.(group.roomId)}
@@ -718,7 +728,7 @@ export function BookingCalendar({
                   };
                   const itemEndOptions = isCurrentRoom && item.startTime ? getItemEndOptions(item.startTime) : [];
 
-                  return isCurrentRoom ? (
+                  return (isCurrentRoom && !item.confirmedToCart) ? (
                     <div
                       key={item.id}
                       className={cn(
@@ -803,42 +813,44 @@ export function BookingCalendar({
                     </div>
                   )
                 })}
+                {/* Subtotal da sala */}
+                {group.items.some(i => i.price > 0) && (() => {
+                  const sub = group.items.reduce((sum, i) => sum + (i.price || 0), 0)
+                  return (
+                    <div className="flex flex-col gap-0.5 px-3 py-2 border-t border-border/60 bg-slate-50/50">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-muted-foreground">Não Associado</span>
+                        <span className="text-[11px] font-semibold text-[#384050]">R$ {sub.toFixed(2).replace(".", ",")}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[11px] text-primary font-medium">Associado</span>
+                        <span className="text-[11px] font-bold text-primary">R$ {(sub * 0.9).toFixed(2).replace(".", ",")}</span>
+                      </div>
+                      {isCurrentRoom && (
+                        <div className="mt-1">
+                          <p className="text-[10px] text-muted-foreground">* Para associados, o desconto pode chegar até 30%.</p>
+                          <details className="group text-[10px] mt-0.5">
+                            <summary className="inline-flex items-center gap-1 text-primary cursor-pointer hover:underline font-medium">
+                              <Info className="size-3" />
+                              Saiba mais
+                            </summary>
+                            <div className="mt-1 rounded-md bg-blue-50 border border-blue-100 p-2 text-[11px] text-blue-900 leading-relaxed">
+                              <span className="font-semibold">Desconto por tempo de associação:</span>
+                              <ul className="mt-0.5 ml-3 list-disc space-y-0.5">
+                                <li>Até 12 meses: <strong>10%</strong></li>
+                                <li>De 13 a 24 meses: <strong>20%</strong></li>
+                                <li>Acima de 24 meses: <strong>30%</strong></li>
+                              </ul>
+                            </div>
+                          </details>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )
           })}
-
-              {/* Estimated Price */}
-              {(totalPrice > 0) && startTime && endTime && (
-                <div className="flex flex-col gap-1.5 rounded-lg border bg-slate-50 p-4 shadow-sm">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-semibold text-[#384050]">Valor para Não Associado</span>
-                    <span className="text-base font-bold text-[#384050]">R$ {totalPrice.toFixed(2).replace(".", ",")}</span>
-                  </div>
-                  <div className="flex justify-between items-center text-primary">
-                <span className="text-sm font-bold">Valor para Associado</span>
-                <span className="text-base font-bold">R$ {(totalPrice * 0.9).toFixed(2).replace(".", ",")}</span>
-                  </div>
-                  <div className="mt-1 flex flex-col gap-1">
-                    <p className="text-[11px] text-muted-foreground">
-                      * Para associados, o desconto pode chegar até 30%.
-                    </p>
-                    <details className="group text-[11px]">
-                      <summary className="inline-flex items-center gap-1 text-primary cursor-pointer hover:underline font-medium">
-                        <Info className="size-3" />
-                        Saiba mais
-                      </summary>
-                      <div className="mt-1.5 rounded-md bg-blue-50 border border-blue-100 p-2.5 text-xs text-blue-900 leading-relaxed">
-                        <span className="font-semibold">Regra de desconto por tempo de associação:</span>
-                        <ul className="mt-1 ml-3 list-disc space-y-0.5">
-                          <li>Até 12 meses: <strong>10%</strong></li>
-                          <li>De 13 a 24 meses: <strong>20%</strong></li>
-                          <li>Acima de 24 meses: <strong>30%</strong></li>
-                        </ul>
-                      </div>
-                    </details>
-                  </div>
-                </div>
-              )}
 
               {/* Confirm Button */}
               {bookings.length > 0 && startTime && endTime && (
