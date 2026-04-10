@@ -11,12 +11,12 @@ import {
 } from "lucide-react"
 import type { BookingItem, OccupiedSlot } from "@/app/page"
 import type { Room } from "@/components/room-list"
-import { cn, isValidCNPJ, API_BASE_URL } from "@/lib/utils"
+import { cn, isValidCNPJ, API_BASE_URL, type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
 import { toast } from "sonner"
 import Image from "next/image"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { TIME_OPTIONS, isSlotOccupied } from "@/components/booking-calendar"
+import { generateTimeOptions, isSlotOccupied } from "@/components/booking-calendar"
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
@@ -37,6 +37,7 @@ interface CartDialogProps {
   onRemoveBooking: (id: string) => void
   onUpdateBooking: (id: string, data: Partial<BookingItem>, markUnsaved?: boolean) => void
   onCheckout: () => void
+  systemSettings?: SystemSettings
 }
 
 export function CartDialog({
@@ -50,8 +51,13 @@ export function CartDialog({
   onRemoveBooking,
   onUpdateBooking,
   onCheckout,
+  systemSettings = DEFAULT_SETTINGS,
 }: CartDialogProps) {
   const router = useRouter()
+  const dynamicTimeOptions = useMemo(
+    () => generateTimeOptions(systemSettings.open_time, systemSettings.close_time),
+    [systemSettings.open_time, systemSettings.close_time]
+  )
   const [step, setStep] = useState<1 | 2>(1)
   const [cnpj, setCnpj] = useState("")
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -346,18 +352,18 @@ export function CartDialog({
                                   {roomBookings.map((b) => {
                                     const isEditing = editingId === b.id
 
-                                    const startOptions = TIME_OPTIONS.slice(0, -1).map(time => {
-                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots)
+                                    const startOptions = dynamicTimeOptions.slice(0, -1).map(time => {
+                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots, systemSettings.cleaning_buffer)
                                       return { time, disabled: !!occupied }
                                     })
 
                                     const getEndOptions = (start: string) => {
-                                      const startIdx = TIME_OPTIONS.indexOf(start)
+                                      const startIdx = dynamicTimeOptions.indexOf(start)
                                       if (startIdx === -1) return []
                                       const options = []
-                                      for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
-                                        const time = TIME_OPTIONS[i]
-                                        const isOccupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, TIME_OPTIONS[i - 1], roomOccupiedSlots)
+                                      for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
+                                        const time = dynamicTimeOptions[i]
+                                        const isOccupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, dynamicTimeOptions[i - 1], roomOccupiedSlots, systemSettings.cleaning_buffer)
                                         options.push({ time, disabled: !!isOccupied })
                                       }
                                       return options

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import type { OccupiedSlot } from "@/app/page"
+import { type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
@@ -28,12 +29,14 @@ import { cn } from "@/lib/utils"
 import type { Room } from "@/components/room-list"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
-// Generate 30-minute interval time options from 08:00 to 22:00
-function generateTimeOptions(): string[] {
+// Generate 30-minute interval time options from open_time to close_time
+export function generateTimeOptions(openTime = "08:00", closeTime = "22:00"): string[] {
   const times: string[] = []
-  for (let h = 8; h <= 22; h++) {
+  const startHour = parseInt(openTime.substring(0, 2), 10)
+  const endHour = parseInt(closeTime.substring(0, 2), 10)
+  for (let h = startHour; h <= endHour; h++) {
     times.push(`${String(h).padStart(2, "0")}:00`)
-    if (h < 22) {
+    if (h < endHour) {
       times.push(`${String(h).padStart(2, "0")}:30`)
     }
   }
@@ -42,12 +45,12 @@ function generateTimeOptions(): string[] {
 
 export const TIME_OPTIONS = generateTimeOptions()
 
-function getDraftEndOptions(start: string) {
-  const startIdx = TIME_OPTIONS.indexOf(start)
+function getDraftEndOptions(start: string, timeOptions: string[] = TIME_OPTIONS) {
+  const startIdx = timeOptions.indexOf(start)
   if (startIdx === -1) return []
   const options = []
-  for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
-    options.push({ time: TIME_OPTIONS[i], disabled: false })
+  for (let i = startIdx + 1; i < timeOptions.length; i++) {
+    options.push({ time: timeOptions[i], disabled: false })
   }
   return options
 }
@@ -64,21 +67,19 @@ const timeToMinutes = (time: string): number => {
 export function isSlotOccupied(
   date: Date,
   time: string,
-  occupiedSlots: OccupiedSlot[]
+  occupiedSlots: OccupiedSlot[],
+  cleaningBuffer: number = 30
 ): boolean {
   if (!date || !time) return false;
-  
+
   const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
   const timeInMinutes = timeToMinutes(time);
 
   for (const slot of occupiedSlots) {
     if (slot.date === dateKey) {
-      // Cria a margem de limpeza (30 min antes e 30 min depois)
-      const startInMinutes = timeToMinutes(slot.startTime) - 30;
-      const endInMinutes = timeToMinutes(slot.endTime) + 30;
-      
-      // Bloqueia se o horário cair EXATAMENTE dentro da margem de limpeza.
-      // Usamos "<" (menor estrito) no endInMinutes para que a opção de 12:30 fique perfeitamente LIVRE.
+      const startInMinutes = timeToMinutes(slot.startTime) - cleaningBuffer;
+      const endInMinutes = timeToMinutes(slot.endTime) + cleaningBuffer;
+
       if (timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes) {
         return true;
       }
@@ -91,14 +92,16 @@ export function isRangeAvailable(
   date: Date,
   start: string,
   end: string,
-  occupiedSlots: OccupiedSlot[]
+  occupiedSlots: OccupiedSlot[],
+  cleaningBuffer: number = 30,
+  timeOptions: string[] = TIME_OPTIONS
 ): boolean {
-  const startIdx = TIME_OPTIONS.indexOf(start);
-  const endIdx = TIME_OPTIONS.indexOf(end);
+  const startIdx = timeOptions.indexOf(start);
+  const endIdx = timeOptions.indexOf(end);
   if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
 
   for (let i = startIdx; i < endIdx; i++) {
-    if (isSlotOccupied(date, TIME_OPTIONS[i], occupiedSlots)) return false;
+    if (isSlotOccupied(date, timeOptions[i], occupiedSlots, cleaningBuffer)) return false;
   }
   return true;
 }
@@ -142,6 +145,7 @@ interface BookingCalendarProps {
   availabilityLoading: boolean;
   isRoomDetailsLoading?: boolean;
   onSwitchRoom?: (roomId: string) => void;
+  systemSettings?: SystemSettings;
 }
 
 export function BookingCalendar({
@@ -170,12 +174,19 @@ export function BookingCalendar({
   availabilityLoading,
   isRoomDetailsLoading,
   onSwitchRoom,
+  systemSettings = DEFAULT_SETTINGS,
 }: BookingCalendarProps) {
   const [carouselIndex, setCarouselIndex] = useState(0)
   const [isLightboxOpen, setIsLightboxOpen] = useState(false)
 
   const [draftStartTime, setDraftStartTime] = useState(startTime)
   const [draftEndTime, setDraftEndTime] = useState(endTime)
+
+  // Dynamic time options based on system settings
+  const dynamicTimeOptions = useMemo(
+    () => generateTimeOptions(systemSettings.open_time, systemSettings.close_time),
+    [systemSettings.open_time, systemSettings.close_time]
+  )
   const today = new Date()
   const currentMonth = new Date(today.getFullYear(), today.getMonth(), 1)
   const [leftMonth, setLeftMonth] = useState(currentMonth)
@@ -227,12 +238,12 @@ export function BookingCalendar({
   }, [startTime, endTime])
 
   const draftStartOptions = useMemo(() => {
-    return TIME_OPTIONS.slice(0, -1).map(time => ({ time, disabled: false }));
-  }, []);
+    return dynamicTimeOptions.slice(0, -1).map(time => ({ time, disabled: false }));
+  }, [dynamicTimeOptions]);
 
   const draftEndOptions = useMemo(
-    () => draftStartTime ? getDraftEndOptions(draftStartTime) : [],
-    [draftStartTime]
+    () => draftStartTime ? getDraftEndOptions(draftStartTime, dynamicTimeOptions) : [],
+    [draftStartTime, dynamicTimeOptions]
   )
 
   const hasIncompleteItems = useMemo(() => bookings.some(b => !b.startTime || !b.endTime), [bookings])
@@ -288,17 +299,17 @@ export function BookingCalendar({
   const fullyBookedDatesSet = useMemo(() => {
     const set = new Set<string>();
     const dateKeys = new Set(occupiedSlots.map(s => s.date));
-    const allSlots = TIME_OPTIONS.slice(0, -1);
+    const allSlots = dynamicTimeOptions.slice(0, -1);
     for (const dateKey of dateKeys) {
       const slotsForDate = occupiedSlots.filter(s => s.date === dateKey);
       const [year, month, day] = dateKey.split('-').map(Number);
       const d = new Date(year, month - 1, day);
-      if (allSlots.every(t => isSlotOccupied(d, t, slotsForDate))) {
+      if (allSlots.every(t => isSlotOccupied(d, t, slotsForDate, systemSettings.cleaning_buffer))) {
         set.add(dateKey);
       }
     }
     return set;
-  }, [occupiedSlots]);
+  }, [occupiedSlots, dynamicTimeOptions, systemSettings.cleaning_buffer]);
 
   const isDateFullyBooked = useCallback((date: Date) => {
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -311,11 +322,16 @@ export function BookingCalendar({
     return d;
   }, []);
 
-  const disabledDates = useMemo(() => [
+  const disabledDates = useMemo(() => {
+    const matchers: any[] = [
       { before: todayStart },
-      { dayOfWeek: [0] },
       isDateFullyBooked
-  ], [todayStart, isDateFullyBooked]);
+    ]
+    if (systemSettings.block_sundays) {
+      matchers.splice(1, 0, { dayOfWeek: [0] })
+    }
+    return matchers
+  }, [todayStart, isDateFullyBooked, systemSettings.block_sundays]);
 
   const handlePrevImage = useCallback(() => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
@@ -430,7 +446,7 @@ export function BookingCalendar({
               <span>Indisponível</span>
             </div>
             <div className="w-full mt-1.5 pt-1.5 border-t border-border/50 text-xs md:w-auto md:mt-0 md:pt-0 md:border-t-0 md:ml-auto">
-              Antecedência mínima de 24h
+              Antecedência mínima de 5 dias
             </div>
           </div>
 
@@ -625,7 +641,7 @@ export function BookingCalendar({
           </h4>
 
           {/* Default Time Selector Box */}
-          {(!startTime || !endTime) && (
+          {(!startTime || !endTime || bookings.length === 0) && (
           <div className="rounded-lg border bg-card p-3 shadow-sm">
             <h5 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Definir Horário
@@ -639,7 +655,7 @@ export function BookingCalendar({
                       setDraftStartTime(e.target.value)
                       setDraftEndTime("")
                     }}
-                    disabled={bookings.length === 0 || availabilityLoading}
+                    disabled={availabilityLoading}
                     className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <option value="">Início</option>
@@ -653,7 +669,7 @@ export function BookingCalendar({
                   <select
                     value={draftEndTime}
                     onChange={(e) => setDraftEndTime(e.target.value)}
-                    disabled={bookings.length === 0 || !draftStartTime || availabilityLoading}
+                    disabled={!draftStartTime || availabilityLoading}
                     className="w-full appearance-none cursor-pointer rounded-md border bg-background px-2 py-1.5 pr-6 text-sm disabled:opacity-50 disabled:cursor-not-allowed focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     <option value="">Término</option>
@@ -710,18 +726,18 @@ export function BookingCalendar({
                   const isUnsaved = unsavedIds.includes(item.id)
                   const isLast = itemIdx === group.items.length - 1
 
-                  const itemStartOptions = isCurrentRoom ? TIME_OPTIONS.slice(0, -1).map(time => {
-                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
+                  const itemStartOptions = isCurrentRoom ? dynamicTimeOptions.slice(0, -1).map(time => {
+                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots, systemSettings.cleaning_buffer);
                     return { time, disabled: !!occupied };
                   }) : [];
 
                   const getItemEndOptions = (start: string) => {
-                    const startIdx = TIME_OPTIONS.indexOf(start);
+                    const startIdx = dynamicTimeOptions.indexOf(start);
                     if (startIdx === -1) return [];
                     const options = [];
-                    for (let i = startIdx + 1; i < TIME_OPTIONS.length; i++) {
-                      const time = TIME_OPTIONS[i];
-                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, TIME_OPTIONS[i - 1], occupiedSlots);
+                    for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
+                      const time = dynamicTimeOptions[i];
+                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, dynamicTimeOptions[i - 1], occupiedSlots, systemSettings.cleaning_buffer);
                       options.push({ time, disabled: !!isOccupied });
                     }
                     return options;

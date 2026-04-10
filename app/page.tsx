@@ -3,11 +3,11 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { Header } from "@/components/header"
 import { RoomList, type Room } from "@/components/room-list"
-import { BookingCalendar, isRangeAvailable } from "@/components/booking-calendar"
+import { BookingCalendar, isRangeAvailable, generateTimeOptions } from "@/components/booking-calendar"
 import { CartDialog } from "@/components/cart-dialog"
 import { Card } from "@/components/ui/card"
 import { MousePointer2, Calendar as CalendarIcon, FileCheck, Sparkles, Clock } from "lucide-react"
-import { calculateRoomPrice, API_BASE_URL, formatDateToISO } from "@/lib/utils"
+import { calculateRoomPrice, API_BASE_URL, formatDateToISO, type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
 import { toast } from "sonner"
 import React from "react"
 
@@ -136,10 +136,35 @@ export default function Home() {
   const [availabilityLoading, setAvailabilityLoading] = useState(false);
   const [isRoomDetailsLoading, setIsRoomDetailsLoading] = useState(false);
   const [viewedMonth, setViewedMonth] = useState(new Date());
+  const [systemSettings, setSystemSettings] = useState<SystemSettings>(DEFAULT_SETTINGS);
+  const [isSettingsLoading, setIsSettingsLoading] = useState(true);
 
   bookingsRef.current = bookings
   cartRoomsRef.current = cartRooms
   roomsRef.current = rooms
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/webhook/api/settings`, { cache: 'no-store' })
+        if (!res.ok) throw new Error("Falha ao buscar configurações")
+        const data = await res.json()
+        if (data.success && data.settings) {
+          setSystemSettings(data.settings)
+        }
+      } catch (error) {
+        console.error("Erro ao carregar configurações do sistema:", error)
+      } finally {
+        setIsSettingsLoading(false)
+      }
+    }
+    fetchSettings()
+  }, [])
+
+  const dynamicTimeOptions = useMemo(
+    () => generateTimeOptions(systemSettings.open_time, systemSettings.close_time),
+    [systemSettings.open_time, systemSettings.close_time]
+  )
 
   const handleSelectRoom = useCallback((room: Room) => {
     setSelectedRoom((prev) => {
@@ -370,9 +395,10 @@ export default function Home() {
       sTime,
       eTime,
       isAssociado ? associadoMonths : 0,
-      range.from && range.to ? range : undefined
+      range.from && range.to ? range : undefined,
+      systemSettings
     )
-  }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths])
+  }, [selectedRoom, selectedRanges, startTimes, endTimes, isAssociado, associadoMonths, systemSettings])
 
   const handleRemoveBooking = useCallback((id: string) => {
     setBookings((prev) => prev.filter((item) => item.id !== id))
@@ -395,7 +421,8 @@ export default function Home() {
             updatedItem.startTime,
             updatedItem.endTime,
             isAssociado ? associadoMonths : 0,
-            updatedItem.selectedRange.from && updatedItem.selectedRange.to ? updatedItem.selectedRange : undefined
+            updatedItem.selectedRange.from && updatedItem.selectedRange.to ? updatedItem.selectedRange : undefined,
+            systemSettings
           )
           updatedItem.price = priceData.finalPrice
         }
@@ -409,7 +436,7 @@ export default function Home() {
     } else {
       setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
     }
-  }, [isAssociado, associadoMonths, rooms])
+  }, [isAssociado, associadoMonths, rooms, systemSettings])
 
   const handleDaySelect = useCallback((date: Date) => {
     const performSelect = async () => { 
@@ -468,19 +495,19 @@ export default function Home() {
             }
           }
 
-          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots)) {
+          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots, systemSettings.cleaning_buffer, dynamicTimeOptions)) {
             hasConflict = true
           }
 
           const priceData = calculateRoomPrice(
-            selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
+            selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }, systemSettings
           )
           price = priceData.finalPrice
         } catch (error) {
           hasConflict = false
           try {
             const priceData = calculateRoomPrice(
-              selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }
+              selectedRoom, date, sTime, eTime, isAssociado ? associadoMonths : 0, { from: date, to: date }, systemSettings
             )
             price = priceData.finalPrice
           } catch (e) {
@@ -580,9 +607,9 @@ export default function Home() {
         const dateStr = item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : null;
         const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
         
-        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots));
+        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots, systemSettings.cleaning_buffer, dynamicTimeOptions));
 
-        const priceData = calculateRoomPrice(selectedRoom, item.selectedRange.from, start, end, isAssociado ? associadoMonths : 0, item.selectedRange.from && item.selectedRange.to ? { from: item.selectedRange.from, to: item.selectedRange.to } : undefined);
+        const priceData = calculateRoomPrice(selectedRoom, item.selectedRange.from, start, end, isAssociado ? associadoMonths : 0, item.selectedRange.from && item.selectedRange.to ? { from: item.selectedRange.from, to: item.selectedRange.to } : undefined, systemSettings);
 
         return { ...item, startTime: start, endTime: end, price: priceData.finalPrice, hasConflict };
       }));
@@ -606,12 +633,13 @@ export default function Home() {
         item.startTime,
         item.endTime,
         isAssociado ? associadoMonths : 0,
-        item.selectedRange.from && item.selectedRange.to ? item.selectedRange : undefined
+        item.selectedRange.from && item.selectedRange.to ? item.selectedRange : undefined,
+        systemSettings
       )
-      
+
       return item.price !== priceData.finalPrice ? { ...item, price: priceData.finalPrice } : item
     }))
-  }, [isAssociado, associadoMonths, rooms])
+  }, [isAssociado, associadoMonths, rooms, systemSettings])
 
   useEffect(() => {
     setCartRooms(prev => prev.filter(roomId => bookings.some(b => b.roomId === roomId && b.confirmedToCart)))
@@ -724,6 +752,14 @@ export default function Home() {
           <div ref={calendarRef} className="flex flex-col gap-4">
             {selectedRoom ? (
               selectedRoom.available ? (
+                isSettingsLoading ? (
+                  <Card className="px-6 py-12 flex items-center justify-center">
+                    <div className="flex flex-col items-center gap-3 text-muted-foreground">
+                      <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                      <span className="text-sm">Carregando configurações...</span>
+                    </div>
+                  </Card>
+                ) : (
                 <>
                   <Card className="px-6 py-6">
                       <BookingCalendar
@@ -745,7 +781,7 @@ export default function Home() {
                         onConfirm={handleConfirm}
                         priceData={currentPriceData}
                         bookings={roomBookings}
-                        allBookings={pendingGlobalBookings} 
+                        allBookings={pendingGlobalBookings}
                         allRooms={rooms}
                         cartRooms={cartRooms}
                         onRemoveBooking={handleRemoveBooking}
@@ -759,10 +795,12 @@ export default function Home() {
                         totalPrice={roomTotal}
                         isRoomDetailsLoading={isRoomDetailsLoading}
                         onSwitchRoom={handleSwitchRoom}
+                        systemSettings={systemSettings}
                       />
                   </Card>
 
                 </>
+                )
               ) : (
                 <div className="rounded-xl border bg-card p-8 text-center text-muted-foreground shadow-sm">
                   Este espaço não está disponível para locação no momento.
@@ -785,6 +823,7 @@ export default function Home() {
         onRemoveBooking={handleRemoveBooking}
         onUpdateBooking={handleUpdateBooking}
         onCheckout={() => setIsCartOpen(false)}
+        systemSettings={systemSettings}
       />
     </div>
   )

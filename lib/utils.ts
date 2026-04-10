@@ -4,6 +4,26 @@ import type { Room } from '@/components/room-list'
 
 export const API_BASE_URL = 'https://acipiapi.eastus.cloudapp.azure.com'
 
+export interface SystemSettings {
+  open_time: string
+  close_time: string
+  cleaning_buffer: number
+  block_sundays: boolean
+  discount_tier1_pct: number
+  discount_tier2_pct: number
+  discount_tier3_pct: number
+}
+
+export const DEFAULT_SETTINGS: SystemSettings = {
+  open_time: "08:00",
+  close_time: "22:00",
+  cleaning_buffer: 30,
+  block_sundays: true,
+  discount_tier1_pct: 10,
+  discount_tier2_pct: 20,
+  discount_tier3_pct: 30,
+}
+
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
@@ -85,7 +105,8 @@ export function calculateRoomPrice(
   startTime: string,
   endTime: string,
   associadoMonths: number = 0,
-  range?: { from?: Date; to?: Date }
+  range?: { from?: Date; to?: Date },
+  settings: SystemSettings = DEFAULT_SETTINGS
 ): {
   basePrice: number
   discountPercent: number
@@ -142,11 +163,11 @@ export function calculateRoomPrice(
   let discountPercent = 0
   if (associadoMonths > 0) {
     if (associadoMonths <= 12) {
-      discountPercent = 10
+      discountPercent = settings.discount_tier1_pct
     } else if (associadoMonths <= 24) {
-      discountPercent = 20
+      discountPercent = settings.discount_tier2_pct
     } else {
-      discountPercent = 30
+      discountPercent = settings.discount_tier3_pct
     }
   }
 
