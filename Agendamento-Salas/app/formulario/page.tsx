@@ -69,6 +69,7 @@ function FormularioContent() {
     cargoResponsavel: "",
     nomeEvento: "",
     finalidadeEvento: "",
+    participantes: "",
     responsavelLocal: "",
     contatoLocal: "",
     opcaoPagamento: "",
@@ -217,8 +218,17 @@ function FormularioContent() {
       setFormData(prev => ({ ...prev, [name]: maskCep(value) }))
       return
     }
+    if (name === "participantes") {
+      setFormData(prev => ({ ...prev, [name]: value.replace(/\D/g, "") }))
+      return
+    }
 
     setFormData(prev => ({ ...prev, [name]: value }));
+  }
+
+  const isValidEmail = (email: string) => {
+    if (!email) return true // vazio nao invalida (obrigatoriedade é checada separadamente)
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
   }
 
   const requiredFields: { key: keyof typeof formData; label: string }[] = [
@@ -248,7 +258,7 @@ function FormularioContent() {
     return `w-full rounded-md border ${errorBorder} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
   }
 
-  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "")
+  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "") && isValidEmail(formData.emailResponsavel)
 
   const handleFinalize = async () => {
     const missing = requiredFields.filter(f => formData[f.key].trim() === "")
@@ -293,16 +303,16 @@ function FormularioContent() {
 
       const payload = {
         company: {
-          cnpj: cnpj.replace(/[^\d]/g, ""),
+          cnpj: cnpj.replace(/\D/g, ""),
           razao_social: formData.razaoSocial,
           inscricao_estadual: formData.inscricaoEstadual,
-          cep: formData.cep,
+          cep: formData.cep.replace(/\D/g, ""),
           endereco: formData.endereco,
         },
         user: {
           name: formData.nomeResponsavel,
           email: formData.emailResponsavel,
-          phone: formData.telefoneResponsavel,
+          phone: formData.telefoneResponsavel.replace(/\D/g, ""),
           role: formData.cargoResponsavel,
         },
         booking: {
@@ -313,7 +323,7 @@ function FormularioContent() {
           endTime: item.endTime,
           event_name: formData.nomeEvento,
           event_purpose: formData.finalidadeEvento,
-          estimated_attendees: null,
+          estimated_attendees: formData.participantes ? parseInt(formData.participantes) : null,
           onsite_contact_name: formData.responsavelLocal,
           onsite_contact_phone: formData.contatoLocal,
           payment_method: formData.opcaoPagamento,
@@ -516,12 +526,12 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Razão social</label>
-                <input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} readOnly={isLocked("razaoSocial")} type="text" className={inputClass("razaoSocial")} />
+                <input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} readOnly={isLocked("razaoSocial")} type="text" placeholder="Nome da empresa" className={inputClass("razaoSocial")} />
                 {hasError("razaoSocial") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome fantasia</label>
-                <input name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} readOnly={isLocked("nomeFantasia")} type="text" className={inputClass("nomeFantasia")} />
+                <input name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} readOnly={isLocked("nomeFantasia")} type="text" placeholder="Nome fantasia" className={inputClass("nomeFantasia")} />
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">CNPJ</label>
@@ -529,7 +539,7 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Inscrição estadual</label>
-                <input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} readOnly={isLocked("inscricaoEstadual")} type="text" className={inputClass("inscricaoEstadual")} />
+                <input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} readOnly={isLocked("inscricaoEstadual")} type="text" placeholder="Isento" className={inputClass("inscricaoEstadual")} />
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">CEP</label>
@@ -538,26 +548,26 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-8">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Endereço</label>
-                <input name="endereco" value={formData.endereco} onChange={handleChange} readOnly={isLocked("endereco")} type="text" className={inputClass("endereco")} />
+                <input name="endereco" value={formData.endereco} onChange={handleChange} readOnly={isLocked("endereco")} type="text" placeholder="Rua, Avenida..." className={inputClass("endereco")} />
                 {hasError("endereco") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nº</label>
-                <input name="numero" value={formData.numero} onChange={handleChange} readOnly={isLocked("numero")} type="text" className={inputClass("numero")} />
+                <input name="numero" value={formData.numero} onChange={handleChange} readOnly={isLocked("numero")} type="text" placeholder="Nº" className={inputClass("numero")} />
                 {hasError("numero") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-5">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Complemento</label>
-                <input name="complemento" value={formData.complemento} onChange={handleChange} readOnly={isLocked("complemento")} type="text" className={inputClass("complemento")} />
+                <input name="complemento" value={formData.complemento} onChange={handleChange} readOnly={isLocked("complemento")} type="text" placeholder="Sala, Andar..." className={inputClass("complemento")} />
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Bairro</label>
-                <input name="bairro" value={formData.bairro} onChange={handleChange} readOnly={isLocked("bairro")} type="text" className={inputClass("bairro")} />
+                <input name="bairro" value={formData.bairro} onChange={handleChange} readOnly={isLocked("bairro")} type="text" placeholder="Bairro" className={inputClass("bairro")} />
                 {hasError("bairro") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-8">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cidade</label>
-                <input name="cidade" value={formData.cidade} onChange={handleChange} readOnly={isLocked("cidade")} type="text" className={inputClass("cidade")} />
+                <input name="cidade" value={formData.cidade} onChange={handleChange} readOnly={isLocked("cidade")} type="text" placeholder="Cidade" className={inputClass("cidade")} />
                 {hasError("cidade") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-4">
@@ -572,13 +582,14 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome completo do responsável</label>
-                <input name="nomeResponsavel" value={formData.nomeResponsavel} onChange={handleChange} readOnly={isLocked("nomeResponsavel")} type="text" className={inputClass("nomeResponsavel")} />
+                <input name="nomeResponsavel" value={formData.nomeResponsavel} onChange={handleChange} readOnly={isLocked("nomeResponsavel")} type="text" placeholder="Nome completo" className={inputClass("nomeResponsavel")} />
                 {hasError("nomeResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">E-mail do responsável</label>
-                <input name="emailResponsavel" value={formData.emailResponsavel} onChange={handleChange} readOnly={isLocked("emailResponsavel")} type="email" className={inputClass("emailResponsavel")} />
+                <input name="emailResponsavel" value={formData.emailResponsavel} onChange={handleChange} readOnly={isLocked("emailResponsavel")} type="email" placeholder="email@exemplo.com" className={inputClass("emailResponsavel")} />
                 {hasError("emailResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                {!hasError("emailResponsavel") && formData.emailResponsavel && !isValidEmail(formData.emailResponsavel) && <span className="text-xs text-amber-500 mt-1">E-mail inválido</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Telefone do responsável</label>
@@ -587,7 +598,7 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cargo</label>
-                <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" className={inputClass("cargoResponsavel")} />
+                <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" placeholder="Ex: Diretor, Gerente..." className={inputClass("cargoResponsavel")} />
                 {hasError("cargoResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
             </div>
@@ -598,44 +609,48 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
-                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" className={inputClass("nomeEvento")} />
+                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" placeholder="Ex: Workshop de Tecnologia" className={inputClass("nomeEvento")} />
                 {hasError("nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
-                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" className={inputClass("finalidadeEvento")} />
+                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" placeholder="Ex: Treinamento, Reunião, Palestra..." className={inputClass("finalidadeEvento")} />
                 {hasError("finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes estimados</label>
+                <input name="participantes" value={formData.participantes} onChange={handleChange} type="text" inputMode="numeric" placeholder="Ex: 50" className={inputClass("participantes")} />
+              </div>
+              <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Data</label>
-                <input 
+                <input
                   type="text"
                   value={cartBookings.length === 1 && cartBookings[0].selectedRange.from ? cartBookings[0].selectedRange.from.toLocaleDateString("pt-BR") : (cartBookings.length > 1 ? "Múltiplas datas (vide resumo)" : "")}
                   readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" 
+                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
                 />
               </div>
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Horário de início</label>
-                <input 
+                <input
                   type="text"
                   value={cartBookings.length === 1 ? cartBookings[0].startTime : (cartBookings.length > 1 ? "Vários" : "")}
                   readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" 
+                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
                 />
               </div>
-              <div className="md:col-span-4">
+              <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Horário de término</label>
-                <input 
+                <input
                   type="text"
                   value={cartBookings.length === 1 ? cartBookings[0].endTime : (cartBookings.length > 1 ? "Vários" : "")}
                   readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" 
+                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
                 />
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsável no dia do evento</label>
-                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" className={inputClass("responsavelLocal")} />
+                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" placeholder="Nome de quem estará presente" className={inputClass("responsavelLocal")} />
                 {hasError("responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
@@ -655,7 +670,7 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informações adicionais do evento</label>
-                <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows={3} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none"></textarea>
+                <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows={3} placeholder="Necessidades especiais, equipamentos extras, observações..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none"></textarea>
               </div>
             </div>
           </div>

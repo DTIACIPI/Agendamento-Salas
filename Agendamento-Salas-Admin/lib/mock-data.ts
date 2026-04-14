@@ -1,4 +1,4 @@
-import type { Client, Coupon, Contract } from "./types"
+import type { Client, Contract } from "./types"
 
 export const initialClients: Client[] = [
   {
@@ -27,11 +27,6 @@ export const initialClients: Client[] = [
   },
 ]
 
-export const initialCoupons: Coupon[] = [
-  { id: 1, code: "ACIPITECH10", type: "percentage", value: 10, maxUses: 100, currentUses: 45, validUntil: "2026-12-31", active: true },
-  { id: 2, code: "BEMVINDO50", type: "fixed", value: 50, maxUses: "", currentUses: 312, validUntil: "", active: true },
-  { id: 3, code: "INVERNO20", type: "percentage", value: 20, maxUses: 50, currentUses: 50, validUntil: "2026-08-30", active: false },
-]
 
 export const initialContracts: Contract[] = [
   { id: "CTR-2026-001", bookingId: "REQ-2026-003", company: "Caterpillar Brasil", date: "09/04/2026", status: "Enviado para Assinatura" },

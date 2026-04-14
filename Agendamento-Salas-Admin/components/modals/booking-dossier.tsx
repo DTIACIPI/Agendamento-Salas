@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import {
-  X, Building2, Users, Calendar as CalIcon, Loader2, DollarSign, Pencil, Save, XCircle,
+  X, Building2, Users, Calendar as CalIcon, Loader2, DollarSign, Pencil, Save, XCircle, FileText,
 } from "lucide-react"
 import { toast } from "sonner"
 import { StatusBadge } from "@/components/shared/status-badge"
@@ -130,7 +130,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
     const action = newStatus === "Confirmada" ? "approve" : "reject"
     setStatusAction(action)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/api/bookings/${bookingId}/status`, {
+      const res = await fetch(`${API_BASE_URL}/webhook/31a49c3a-2924-4bd3-85b9-e51b34e6fd39/api/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -181,7 +181,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
             <p className="text-sm text-slate-500">ID: {bookingId}</p>
           </div>
           <div className="flex items-center gap-2">
-            {booking && !isLoading && !isEditing && (
+            {booking && !isLoading && !isEditing && booking.status !== "Confirmada" && booking.status !== "Cancelada" && (
               <button
                 onClick={startEditing}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#184689] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -232,12 +232,17 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
                 <div className="text-right">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
                   {isEditing ? (
-                    <input
-                      type="text"
-                      value={draft?.total_amount ?? ""}
-                      onChange={(e) => updateDraft("total_amount", e.target.value)}
-                      className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-36 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                    />
+                    <div className="flex items-center gap-1 justify-end">
+                      <span className="text-lg font-black text-[#184689]">R$</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={draft?.total_amount ?? ""}
+                        onChange={(e) => updateDraft("total_amount", maskCurrency(e.target.value))}
+                        placeholder="0,00"
+                        className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-32 focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-blue-300"
+                      />
+                    </div>
                   ) : (
                     <p className="text-2xl font-black text-[#184689] leading-none">
                       {formatAmount(current.total_amount)}
@@ -342,6 +347,22 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
                     Aprovar Reserva
                   </button>
                 </>
+              ) : status === "Confirmada" ? (
+                <>
+                  <button
+                    onClick={() => toast.info("Funcionalidade de contrato em breve!")}
+                    className="w-full py-2.5 bg-[#184689] text-white rounded-lg font-medium text-sm hover:bg-[#12356b] transition-colors shadow-sm flex items-center justify-center gap-2"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Gerar Contrato
+                  </button>
+                  <button
+                    className="w-full py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
+                    onClick={onClose}
+                  >
+                    Fechar Dossie
+                  </button>
+                </>
               ) : (
                 <button
                   className="col-span-2 w-full py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
@@ -377,6 +398,62 @@ function Field({ label, value, mono, bold, span2 }: {
   )
 }
 
+/* ---- Mask helpers ---- */
+
+function maskPhone(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 11)
+  if (d.length <= 2) return d.replace(/^(\d{0,2})/, "($1")
+  if (d.length <= 7) return d.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
+  return d.replace(/^(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3")
+}
+
+function maskCep(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 8)
+  if (d.length <= 5) return d
+  return d.replace(/^(\d{5})(\d{0,3})/, "$1-$2")
+}
+
+function maskCnpj(v: string): string {
+  const d = v.replace(/\D/g, "").slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return d.replace(/^(\d{2})(\d{0,3})/, "$1.$2")
+  if (d.length <= 8) return d.replace(/^(\d{2})(\d{3})(\d{0,3})/, "$1.$2.$3")
+  if (d.length <= 12) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{0,4})/, "$1.$2.$3/$4")
+  return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/, "$1.$2.$3/$4-$5")
+}
+
+function maskCurrency(v: string): string {
+  const d = v.replace(/\D/g, "")
+  if (!d) return ""
+  const n = parseInt(d, 10) / 100
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+type MaskType = "phone" | "cep" | "cnpj" | "currency" | "email" | "number" | undefined
+
+const MASK_CONFIG: Record<string, { mask: MaskType; placeholder?: string; maxLength?: number; inputMode?: string }> = {
+  user_phone: { mask: "phone", placeholder: "(00) 00000-0000", maxLength: 15, inputMode: "numeric" },
+  onsite_contact_phone: { mask: "phone", placeholder: "(00) 00000-0000", maxLength: 15, inputMode: "numeric" },
+  cep: { mask: "cep", placeholder: "00000-000", maxLength: 9, inputMode: "numeric" },
+  cnpj: { mask: "cnpj", placeholder: "00.000.000/0000-00", maxLength: 18, inputMode: "numeric" },
+  user_email: { mask: "email", placeholder: "email@exemplo.com" },
+  estimated_attendees: { mask: "number", placeholder: "Ex: 50", inputMode: "numeric" },
+  total_amount: { mask: "currency", placeholder: "0,00", inputMode: "numeric" },
+}
+
+function applyMask(field: string, value: string): string {
+  const cfg = MASK_CONFIG[field]
+  if (!cfg?.mask) return value
+  switch (cfg.mask) {
+    case "phone": return maskPhone(value)
+    case "cep": return maskCep(value)
+    case "cnpj": return maskCnpj(value)
+    case "currency": return maskCurrency(value)
+    case "number": return value.replace(/\D/g, "")
+    default: return value
+  }
+}
+
 function EditableField({ label, value, field, mono, bold, span2, editing, onChange }: {
   label: string
   value: string
@@ -391,14 +468,28 @@ function EditableField({ label, value, field, mono, bold, span2, editing, onChan
     return <Field label={label} value={value} mono={mono} bold={bold} span2={span2} />
   }
 
+  const cfg = MASK_CONFIG[field as string]
+  const inputType = cfg?.mask === "email" ? "email" : "text"
+  const placeholder = cfg?.placeholder
+  const maxLength = cfg?.maxLength
+  const inputMode = (cfg?.inputMode ?? "text") as React.HTMLAttributes<HTMLInputElement>["inputMode"]
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const masked = applyMask(field as string, e.target.value)
+    onChange(field, masked)
+  }
+
   return (
     <div className={span2 ? "col-span-2" : ""}>
       <label className="block text-xs font-medium text-slate-400 uppercase mb-1">{label}</label>
       <input
-        type="text"
+        type={inputType}
         value={value}
-        onChange={(e) => onChange(field, e.target.value)}
-        className={`w-full px-3 py-1.5 text-sm border border-blue-200 bg-blue-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 ${bold ? "font-semibold text-slate-800" : "text-slate-700"} ${mono ? "font-mono" : ""}`}
+        onChange={handleInputChange}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        inputMode={inputMode}
+        className={`w-full px-3 py-1.5 text-sm border border-blue-200 bg-blue-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-blue-300 ${bold ? "font-semibold text-slate-800" : "text-slate-700"} ${mono ? "font-mono" : ""}`}
       />
     </div>
   )

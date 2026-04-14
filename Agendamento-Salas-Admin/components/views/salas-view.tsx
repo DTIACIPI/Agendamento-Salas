@@ -1,6 +1,8 @@
 "use client"
 
-import { Plus, Edit, ImageOff } from "lucide-react"
+import { useState } from "react"
+import { Plus, Edit, ImageOff, Trash2, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import type { Room } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
 
@@ -8,6 +10,7 @@ interface SalasViewProps {
   rooms: Room[]
   isLoading: boolean
   onOpenRoomModal: (room: Room | null) => void
+  onDeleteRoom: (roomId: string) => Promise<void>
 }
 
 function getBasePrice(periods: Room["pricePeriodsWeekday"]): number | null {
@@ -15,7 +18,23 @@ function getBasePrice(periods: Room["pricePeriodsWeekday"]): number | null {
   return periods[0].price
 }
 
-export function SalasView({ rooms, isLoading, onOpenRoomModal }: SalasViewProps) {
+export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: SalasViewProps) {
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  const handleDelete = async (roomId: string) => {
+    setDeletingId(roomId)
+    try {
+      await onDeleteRoom(roomId)
+      toast.success("Sala excluida com sucesso!")
+    } catch {
+      toast.error("Erro ao excluir sala")
+    } finally {
+      setDeletingId(null)
+      setConfirmDeleteId(null)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-6">
@@ -52,8 +71,8 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal }: SalasViewProps)
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {rooms.map((room) => {
-            const weekdayPrice = getBasePrice(room.pricePeriodsWeekday)
-            const saturdayPrice = getBasePrice(room.pricePeriodsSaturday)
+            const weekdayPrice = room.price_per_hour_weekday ?? getBasePrice(room.pricePeriodsWeekday)
+            const saturdayPrice = room.price_per_hour_weekend ?? getBasePrice(room.pricePeriodsSaturday)
 
             return (
               <div key={room.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
@@ -95,23 +114,55 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal }: SalasViewProps)
                     <div className="flex justify-between border-b border-slate-50 pb-1">
                       <span>Seg-Sex (/h):</span>
                       <span className="font-semibold">
-                        {weekdayPrice !== null ? formatCurrency(weekdayPrice) : "—"}
+                        {weekdayPrice !== null && weekdayPrice !== undefined ? formatCurrency(weekdayPrice) : "—"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span>Sabado (/h):</span>
                       <span className="font-semibold">
-                        {saturdayPrice !== null ? formatCurrency(saturdayPrice) : "—"}
+                        {saturdayPrice !== null && saturdayPrice !== undefined ? formatCurrency(saturdayPrice) : "—"}
                       </span>
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => onOpenRoomModal(room)}
-                    className="w-full mt-4 flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-[#184689] border border-slate-200 py-2 rounded-lg text-sm font-medium transition-colors"
-                  >
-                    <Edit className="w-4 h-4" /> Editar Regras e Valores
-                  </button>
+                  <div className="mt-4 flex gap-2">
+                    <button
+                      onClick={() => onOpenRoomModal(room)}
+                      className="flex-1 flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-[#184689] border border-slate-200 py-2 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      <Edit className="w-4 h-4" /> Editar
+                    </button>
+
+                    {confirmDeleteId === room.id ? (
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleDelete(room.id)}
+                          disabled={deletingId === room.id}
+                          className="flex items-center gap-1 px-3 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+                        >
+                          {deletingId === room.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            "Confirmar"
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-3 py-2 bg-slate-100 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
+                        >
+                          Nao
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteId(room.id)}
+                        className="flex items-center justify-center px-3 py-2 bg-slate-50 hover:bg-red-50 text-red-500 border border-slate-200 hover:border-red-200 rounded-lg text-sm font-medium transition-colors"
+                        title="Excluir sala"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             )
