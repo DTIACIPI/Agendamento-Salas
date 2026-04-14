@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { Sidebar } from "@/components/layout/sidebar"
 import { Topbar } from "@/components/layout/topbar"
 import { DashboardView } from "@/components/views/dashboard-view"
@@ -15,13 +15,18 @@ import { BookingDossier } from "@/components/modals/booking-dossier"
 import { CouponModal } from "@/components/modals/coupon-modal"
 import { RoomModal } from "@/components/modals/room-modal"
 import {
-  initialBookings,
-  initialRooms,
   initialCoupons,
   initialClients,
   initialContracts,
 } from "@/lib/mock-data"
-import type { Booking, Room, Coupon, TabId } from "@/lib/types"
+import { API_BASE_URL, DEFAULT_SETTINGS } from "@/lib/utils"
+import type {
+  BookingListItem,
+  Coupon,
+  Room,
+  SystemSettings,
+  TabId,
+} from "@/lib/types"
 
 export default function AdminDashboard() {
   // Layout states
@@ -29,22 +34,116 @@ export default function AdminDashboard() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
-  // Data states
-  const [bookings, setBookings] = useState<Booking[]>(initialBookings)
-  const [rooms] = useState<Room[]>(initialRooms)
+  // Data states (mock — ainda sem rota GET)
   const [coupons, setCoupons] = useState<Coupon[]>(initialCoupons)
 
+  // Data states (API)
+  const [rooms, setRooms] = useState<Room[]>([])
+  const [isRoomsLoading, setIsRoomsLoading] = useState(true)
+  const [bookings, setBookings] = useState<BookingListItem[]>([])
+  const [isBookingsLoading, setIsBookingsLoading] = useState(true)
+
   // Modal states
-  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null)
+  const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false)
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null)
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false)
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
 
+  // Global system settings
+  const [systemSettings, setSystemSettings] = useState<SystemSettings>(DEFAULT_SETTINGS)
+  const [isSettingsLoading, setIsSettingsLoading] = useState(true)
+
+  // Fetch: settings
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const fetchSettings = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/webhook/api/settings`, {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error("Falha ao buscar configurações")
+        const data = await res.json()
+        if (data?.success && data.settings) {
+          setSystemSettings(data.settings as SystemSettings)
+        }
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return
+        console.error("Erro ao carregar configurações do sistema:", error)
+      } finally {
+        setIsSettingsLoading(false)
+      }
+    }
+
+    fetchSettings()
+    return () => controller.abort()
+  }, [])
+
+  // Fetch: spaces
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const fetchSpaces = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/webhook/api/spaces`, {
+          cache: "no-store",
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error("Falha ao buscar salas")
+        const data = await res.json()
+        // API retorna [{"data": [...]}] (array com objeto) ou {"data": [...]}
+        const payload = Array.isArray(data) ? data[0] : data
+        if (Array.isArray(payload?.data)) {
+          setRooms(
+            payload.data.map((r: Record<string, unknown>) => ({
+              ...r,
+              available: r.available === 1 || r.available === true,
+            })) as Room[]
+          )
+        }
+      } catch (error) {
+        if ((error as Error).name === "AbortError") return
+        console.error("Erro ao carregar salas:", error)
+      } finally {
+        setIsRoomsLoading(false)
+      }
+    }
+
+    fetchSpaces()
+    return () => controller.abort()
+  }, [])
+
+  // Fetch: bookings
+  const fetchBookings = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/webhook/api/bookings`, {
+        cache: "no-store",
+        signal,
+      })
+      if (!res.ok) throw new Error("Falha ao buscar reservas")
+      const data = await res.json()
+      if (Array.isArray(data?.data)) {
+        setBookings(data.data as BookingListItem[])
+      }
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return
+      console.error("Erro ao carregar reservas:", error)
+    } finally {
+      setIsBookingsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchBookings(controller.signal)
+    return () => controller.abort()
+  }, [fetchBookings])
+
   // Handlers
-  const handleSaveBooking = (updated: Booking) => {
-    setBookings((prev) => prev.map((b) => (b.id === updated.id ? updated : b)))
-    setSelectedBooking(updated)
+  const handleBookingStatusChanged = async () => {
+    await fetchBookings()
   }
 
   const handleToggleCoupon = (id: number) => {
@@ -64,13 +163,27 @@ export default function AdminDashboard() {
   const handleSaveCoupon = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsCouponModalOpen(false)
-    // TODO: ligar ao state quando houver backend
   }
 
-  const handleSaveRoom = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
+  const handleRoomSaved = () => {
     setIsRoomModalOpen(false)
-    // TODO: ligar ao state quando houver backend
+    // Re-fetch rooms
+    setIsRoomsLoading(true)
+    fetch(`${API_BASE_URL}/webhook/api/spaces`, { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        const payload = Array.isArray(data) ? data[0] : data
+        if (Array.isArray(payload?.data)) {
+          setRooms(
+            payload.data.map((r: Record<string, unknown>) => ({
+              ...r,
+              available: r.available === 1 || r.available === true,
+            })) as Room[]
+          )
+        }
+      })
+      .catch(console.error)
+      .finally(() => setIsRoomsLoading(false))
   }
 
   return (
@@ -93,10 +206,26 @@ export default function AdminDashboard() {
           <div className="max-w-7xl mx-auto h-full">
             {activeTab === "dashboard" && <DashboardView />}
             {activeTab === "reservas" && (
-              <ReservasView bookings={bookings} onOpenDossier={setSelectedBooking} />
+              <ReservasView
+                bookings={bookings}
+                isLoading={isBookingsLoading}
+                onOpenDossier={setSelectedBookingId}
+              />
             )}
-            {activeTab === "agenda" && <AgendaView rooms={rooms} />}
-            {activeTab === "salas" && <SalasView rooms={rooms} onOpenRoomModal={openRoomModal} />}
+            {activeTab === "agenda" && (
+              <AgendaView
+                rooms={rooms}
+                systemSettings={systemSettings}
+                isSettingsLoading={isSettingsLoading}
+              />
+            )}
+            {activeTab === "salas" && (
+              <SalasView
+                rooms={rooms}
+                isLoading={isRoomsLoading}
+                onOpenRoomModal={openRoomModal}
+              />
+            )}
             {activeTab === "cupons" && (
               <CuponsView
                 coupons={coupons}
@@ -106,15 +235,21 @@ export default function AdminDashboard() {
             )}
             {activeTab === "contratos" && <ContratosView contracts={initialContracts} />}
             {activeTab === "clientes" && <ClientesView clients={initialClients} />}
-            {activeTab === "config" && <ConfigView />}
+            {activeTab === "config" && (
+              <ConfigView
+                systemSettings={systemSettings}
+                isSettingsLoading={isSettingsLoading}
+                onSettingsChange={setSystemSettings}
+              />
+            )}
           </div>
         </div>
 
         {/* Modais & Sheets */}
         <BookingDossier
-          booking={selectedBooking}
-          onClose={() => setSelectedBooking(null)}
-          onSave={handleSaveBooking}
+          bookingId={selectedBookingId}
+          onClose={() => setSelectedBookingId(null)}
+          onStatusChanged={handleBookingStatusChanged}
         />
         <CouponModal
           open={isCouponModalOpen}
@@ -126,7 +261,7 @@ export default function AdminDashboard() {
           open={isRoomModalOpen}
           editingRoom={editingRoom}
           onClose={() => setIsRoomModalOpen(false)}
-          onSubmit={handleSaveRoom}
+          onSaved={handleRoomSaved}
         />
       </main>
     </div>

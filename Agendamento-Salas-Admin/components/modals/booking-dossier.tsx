@@ -1,97 +1,215 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import {
-  X, Edit, Save, Building2, Users, Calendar as CalIcon,
+  X, Building2, Users, Calendar as CalIcon, Loader2, DollarSign, Pencil, Save, XCircle,
 } from "lucide-react"
+import { toast } from "sonner"
 import { StatusBadge } from "@/components/shared/status-badge"
-import type { Booking } from "@/lib/types"
+import { API_BASE_URL } from "@/lib/utils"
+import type { BookingDetail } from "@/lib/types"
+
+const DETAIL_BASE = `${API_BASE_URL}/webhook/details-booking-webhook/api/bookings`
+const EDIT_BASE = `${API_BASE_URL}/webhook/edit-booking-dossier-webhook/api/bookings`
 
 interface BookingDossierProps {
-  booking: Booking | null
+  bookingId: string | null
   onClose: () => void
-  onSave: (updated: Booking) => void
+  onStatusChanged: () => void
 }
 
-type Section = "companyData" | "responsavelData" | "eventoData"
+export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingDossierProps) {
+  const [booking, setBooking] = useState<BookingDetail | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [statusAction, setStatusAction] = useState<"approve" | "reject" | null>(null)
 
-export function BookingDossier({ booking, onClose, onSave }: BookingDossierProps) {
+  // Edit mode
   const [isEditing, setIsEditing] = useState(false)
-  const [editedData, setEditedData] = useState<Booking | null>(null)
+  const [draft, setDraft] = useState<BookingDetail | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
+
+  const fetchBookingDetail = useCallback(async (id: string, signal?: AbortSignal) => {
+    setIsLoading(true)
+    try {
+      const res = await fetch(`${DETAIL_BASE}/${id}`, {
+        cache: "no-store",
+        signal,
+      })
+      if (!res.ok) throw new Error("Falha ao buscar detalhes da reserva")
+      const data = await res.json()
+      const detail = Array.isArray(data) ? data[0] : data
+      if (detail?.id) {
+        setBooking(detail as BookingDetail)
+      } else {
+        toast.error("Resposta inesperada da API de detalhes")
+      }
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return
+      console.error("Erro ao carregar detalhes da reserva:", error)
+      toast.error("Erro ao carregar detalhes da reserva")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    if (!booking) {
+    if (!bookingId) {
+      setBooking(null)
       setIsEditing(false)
-      setEditedData(null)
+      setDraft(null)
+      return
     }
-  }, [booking])
+    const controller = new AbortController()
+    fetchBookingDetail(bookingId, controller.signal)
+    return () => controller.abort()
+  }, [bookingId, fetchBookingDetail])
 
-  if (!booking) return null
-
-  const handleEditStart = () => {
-    setEditedData(JSON.parse(JSON.stringify(booking)))
+  const startEditing = () => {
+    if (!booking) return
+    setDraft({ ...booking })
     setIsEditing(true)
   }
 
-  const handleEditCancel = () => {
+  const cancelEditing = () => {
     setIsEditing(false)
-    setEditedData(null)
+    setDraft(null)
   }
 
-  const handleSave = () => {
-    if (editedData) {
-      onSave(editedData)
+  const updateDraft = (field: keyof BookingDetail, value: string | number | null) => {
+    setDraft((prev) => prev ? { ...prev, [field]: value } : prev)
+  }
+
+  const handleSave = async () => {
+    if (!draft || !bookingId) return
+    setIsSaving(true)
+    try {
+      const res = await fetch(`${EDIT_BASE}/${bookingId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          companyData: {
+            razaoSocial: draft.razao_social,
+            ie: draft.inscricao_estadual || "",
+            cep: draft.cep || "",
+            endereco: draft.endereco || "",
+          },
+          responsavelData: {
+            nome: draft.user_name,
+            email: draft.user_email,
+            telefone: draft.user_phone || "",
+            cargo: "",
+          },
+          eventoData: {
+            nome: draft.event_name,
+            finalidade: draft.event_purpose || "",
+            participantes: draft.estimated_attendees,
+            responsavelDia: draft.onsite_contact_name || "",
+            contatoDia: draft.onsite_contact_phone || "",
+            pagamento: draft.payment_method || "",
+            valorTotal: parseFloat(draft.total_amount) || 0,
+            status: draft.status,
+          },
+        }),
+      })
+      if (!res.ok) throw new Error("Falha ao salvar alteracoes")
+      toast.success("Reserva atualizada com sucesso!")
+      setBooking(draft)
       setIsEditing(false)
+      setDraft(null)
+      onStatusChanged()
+    } catch (error) {
+      console.error("Erro ao salvar alteracoes:", error)
+      toast.error("Erro ao salvar alteracoes da reserva")
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  const handleClose = () => {
-    setIsEditing(false)
-    setEditedData(null)
-    onClose()
+  const handleStatusChange = async (newStatus: "Confirmada" | "Cancelada") => {
+    if (!bookingId) return
+    const action = newStatus === "Confirmada" ? "approve" : "reject"
+    setStatusAction(action)
+    try {
+      const res = await fetch(`${API_BASE_URL}/webhook/api/bookings/${bookingId}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      if (!res.ok) throw new Error("Falha ao atualizar status")
+      toast.success(newStatus === "Confirmada" ? "Reserva aprovada!" : "Reserva rejeitada.")
+      onStatusChanged()
+      onClose()
+    } catch (error) {
+      console.error("Erro ao atualizar status:", error)
+      toast.error("Erro ao atualizar status da reserva")
+    } finally {
+      setStatusAction(null)
+    }
   }
 
-  const updateField = <S extends Section, K extends keyof Booking[S]>(
-    section: S,
-    field: K,
-    value: Booking[S][K],
-  ) => {
-    setEditedData((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        [section]: {
-          ...prev[section],
-          [field]: value,
-        },
-      }
-    })
+  if (!bookingId) return null
+
+  const current = isEditing ? draft : booking
+  const status = current?.status ?? "Pendente"
+
+  const formatSlots = (slots: BookingDetail["horarios_reservados"]) => {
+    if (!slots || slots.length === 0) return "Sem horarios"
+    return slots.map((s) => {
+      const date = new Date(s.booking_date + "T00:00:00")
+      const formatted = date.toLocaleDateString("pt-BR")
+      const start = s.start_time?.substring(0, 5) ?? ""
+      const end = s.end_time?.substring(0, 5) ?? ""
+      return `${formatted} ${start}–${end}`
+    }).join(" | ")
   }
 
-  const current = isEditing && editedData ? editedData : booking
-  const editingClass = isEditing ? "border-[#184689]/30 ring-1 ring-[#184689]/10" : "border-slate-200"
+  const formatAmount = (value: string | null) => {
+    if (!value) return "R$ 0,00"
+    const n = parseFloat(value)
+    if (!isFinite(n)) return value
+    return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={handleClose} />
+      <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
       <div className="w-full max-w-2xl bg-white h-full shadow-2xl relative z-50 flex flex-col animate-in slide-in-from-right duration-300">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex justify-between bg-slate-50 items-center shrink-0">
           <div>
             <h2 className="text-xl font-bold text-slate-800">Dossie de Reserva</h2>
-            <p className="text-sm text-slate-500">ID: {booking.id}</p>
+            <p className="text-sm text-slate-500">ID: {bookingId}</p>
           </div>
-          <div className="flex items-center gap-3">
-            {!isEditing && (
+          <div className="flex items-center gap-2">
+            {booking && !isLoading && !isEditing && (
               <button
-                onClick={handleEditStart}
-                className="flex items-center gap-1.5 text-sm font-medium text-[#184689] bg-blue-50 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition-colors"
+                onClick={startEditing}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#184689] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
               >
-                <Edit className="w-4 h-4" /> Editar Campos
+                <Pencil className="w-3.5 h-3.5" /> Editar
               </button>
             )}
+            {isEditing && (
+              <>
+                <button
+                  onClick={cancelEditing}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50"
+                >
+                  <XCircle className="w-3.5 h-3.5" /> Cancelar
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50"
+                >
+                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  Salvar
+                </button>
+              </>
+            )}
             <button
-              onClick={handleClose}
+              onClick={onClose}
               className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200"
             >
               <X />
@@ -101,351 +219,216 @@ export function BookingDossier({ booking, onClose, onSave }: BookingDossierProps
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-slate-50">
-          {/* Status + Valor */}
-          <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Status da Reserva</p>
-              <StatusBadge status={booking.status} />
-            </div>
-            <div className="text-right">
-              <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
-              <p className="text-2xl font-black text-[#184689] leading-none">{booking.value}</p>
-            </div>
-          </div>
-
-          {/* Dados da Empresa */}
-          <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${editingClass}`}>
-            <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-              <Building2 className="w-5 h-5 text-slate-500" />
-              <h3 className="font-bold text-slate-800">Dados da Empresa</h3>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
-              <div className="col-span-2 sm:col-span-1">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Razao Social</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.companyData.razaoSocial}
-                    onChange={(e) => updateField("companyData", "razaoSocial", e.target.value)}
-                  />
-                ) : (
-                  <span className="font-semibold text-slate-800">{current.companyData.razaoSocial}</span>
-                )}
-              </div>
-              <div className="col-span-2 sm:col-span-1">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Nome Fantasia</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.companyData.nomeFantasia}
-                    onChange={(e) => updateField("companyData", "nomeFantasia", e.target.value)}
-                  />
-                ) : (
-                  <span className="font-semibold text-slate-800">{current.companyData.nomeFantasia || "-"}</span>
-                )}
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">CNPJ</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none bg-slate-100 text-slate-500 cursor-not-allowed"
-                    readOnly
-                    value={current.companyData.cnpj}
-                  />
-                ) : (
-                  <span className="font-mono text-slate-700">{current.companyData.cnpj}</span>
-                )}
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Inscricao Estadual</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.companyData.ie}
-                    onChange={(e) => updateField("companyData", "ie", e.target.value)}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.companyData.ie || "Isento"}</span>
-                )}
-              </div>
-              <div className="col-span-2 bg-slate-50 p-3 rounded border border-slate-100">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-2">Endereco Completo</span>
-                {isEditing ? (
-                  <div className="grid grid-cols-4 gap-2">
+          {isLoading ? (
+            <DossierSkeleton />
+          ) : current ? (
+            <>
+              {/* Status + Valor */}
+              <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Status da Reserva</p>
+                  <StatusBadge status={status} />
+                </div>
+                <div className="text-right">
+                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
+                  {isEditing ? (
                     <input
-                      className="col-span-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="CEP"
-                      value={current.companyData.cep}
-                      onChange={(e) => updateField("companyData", "cep", e.target.value)}
+                      type="text"
+                      value={draft?.total_amount ?? ""}
+                      onChange={(e) => updateDraft("total_amount", e.target.value)}
+                      className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-36 focus:outline-none focus:ring-2 focus:ring-blue-300"
                     />
-                    <input
-                      className="col-span-3 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Endereco"
-                      value={current.companyData.endereco}
-                      onChange={(e) => updateField("companyData", "endereco", e.target.value)}
-                    />
-                    <input
-                      className="col-span-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Nº"
-                      value={current.companyData.numero}
-                      onChange={(e) => updateField("companyData", "numero", e.target.value)}
-                    />
-                    <input
-                      className="col-span-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Comp."
-                      value={current.companyData.complemento}
-                      onChange={(e) => updateField("companyData", "complemento", e.target.value)}
-                    />
-                    <input
-                      className="col-span-2 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Bairro"
-                      value={current.companyData.bairro}
-                      onChange={(e) => updateField("companyData", "bairro", e.target.value)}
-                    />
-                    <input
-                      className="col-span-3 border border-slate-300 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Cidade"
-                      value={current.companyData.cidade}
-                      onChange={(e) => updateField("companyData", "cidade", e.target.value)}
-                    />
-                    <input
-                      className="col-span-1 border border-slate-300 rounded px-2 py-1 text-sm outline-none bg-slate-100"
-                      readOnly
-                      value={current.companyData.estado}
-                    />
-                  </div>
-                ) : (
-                  <>
-                    <p className="text-slate-700">
-                      {current.companyData.endereco}, {current.companyData.numero}
-                      {current.companyData.complemento && ` - ${current.companyData.complemento}`}
+                  ) : (
+                    <p className="text-2xl font-black text-[#184689] leading-none">
+                      {formatAmount(current.total_amount)}
                     </p>
-                    <p className="text-slate-700">
-                      {current.companyData.bairro} • {current.companyData.cidade} - {current.companyData.estado} •
-                      CEP: {current.companyData.cep}
-                    </p>
-                  </>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Responsavel */}
-          <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${editingClass}`}>
-            <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-              <Users className="w-5 h-5 text-slate-500" />
-              <h3 className="font-bold text-slate-800">Dados do Responsavel</h3>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Nome Completo</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.responsavelData.nome}
-                    onChange={(e) => updateField("responsavelData", "nome", e.target.value)}
-                  />
-                ) : (
-                  <span className="font-semibold text-slate-800">{current.responsavelData.nome}</span>
-                )}
+              {/* Dados da Empresa */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <Building2 className="w-5 h-5 text-slate-500" />
+                  <h3 className="font-bold text-slate-800">Dados da Empresa</h3>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                  <EditableField label="Razao Social" value={current.razao_social} field="razao_social" span2 bold editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="CNPJ" value={current.cnpj} field="cnpj" mono editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Inscricao Estadual" value={current.inscricao_estadual || "Isento"} field="inscricao_estadual" editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="CEP" value={current.cep || ""} field="cep" editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Endereco" value={current.endereco || ""} field="endereco" span2 editing={isEditing} onChange={updateDraft} />
+                </div>
               </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Cargo</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.responsavelData.cargo}
-                    onChange={(e) => updateField("responsavelData", "cargo", e.target.value)}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.responsavelData.cargo}</span>
-                )}
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Telefone</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.responsavelData.telefone}
-                    onChange={(e) => updateField("responsavelData", "telefone", e.target.value)}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.responsavelData.telefone}</span>
-                )}
-              </div>
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">E-mail</span>
-                {isEditing ? (
-                  <input
-                    type="email"
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.responsavelData.email}
-                    onChange={(e) => updateField("responsavelData", "email", e.target.value)}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.responsavelData.email}</span>
-                )}
-              </div>
-            </div>
-          </div>
 
-          {/* Evento */}
-          <div className={`bg-white rounded-xl border shadow-sm overflow-hidden ${editingClass}`}>
-            <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-              <CalIcon className="w-5 h-5 text-slate-500" />
-              <h3 className="font-bold text-slate-800">Dados do Evento & Agendamento</h3>
-            </div>
-            <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Sala Reservada</span>
-                <span className="font-semibold text-[#184689] text-base">{booking.room}</span>
+              {/* Responsavel */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-slate-500" />
+                  <h3 className="font-bold text-slate-800">Dados do Responsavel</h3>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                  <EditableField label="Nome Completo" value={current.user_name} field="user_name" span2 bold editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="E-mail" value={current.user_email} field="user_email" editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Telefone" value={current.user_phone || ""} field="user_phone" editing={isEditing} onChange={updateDraft} />
+                </div>
               </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Data</span>
-                <span className="font-semibold text-slate-800">{booking.date}</span>
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Horario</span>
-                <span className="font-semibold text-slate-800">{booking.time}</span>
-              </div>
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Nome do Evento</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.eventoData.nome}
-                    onChange={(e) => updateField("eventoData", "nome", e.target.value)}
-                  />
-                ) : (
-                  <span className="font-semibold text-slate-800">{current.eventoData.nome}</span>
-                )}
-              </div>
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Finalidade</span>
-                {isEditing ? (
-                  <input
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.eventoData.finalidade}
-                    onChange={(e) => updateField("eventoData", "finalidade", e.target.value)}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.eventoData.finalidade}</span>
-                )}
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Nº Participantes</span>
-                {isEditing ? (
-                  <input
-                    type="number"
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.eventoData.participantes}
-                    onChange={(e) => updateField("eventoData", "participantes", Number(e.target.value))}
-                  />
-                ) : (
-                  <span className="text-slate-700">{current.eventoData.participantes} pessoas</span>
-                )}
-              </div>
-              <div>
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Opcao de Pagamento</span>
-                {isEditing ? (
-                  <select
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.eventoData.pagamento}
-                    onChange={(e) => updateField("eventoData", "pagamento", e.target.value)}
-                  >
-                    <option>Boleto</option>
-                    <option>Cartao de Credito</option>
-                    <option>PIX</option>
-                    <option>Dinheiro</option>
-                  </select>
-                ) : (
-                  <span className="text-slate-700">{current.eventoData.pagamento}</span>
-                )}
-              </div>
-              <div className="col-span-2 bg-amber-50 p-3 rounded border border-amber-100 mt-2">
-                <span className="block text-xs font-bold text-amber-600 uppercase mb-2">Responsavel no dia do evento</span>
-                {isEditing ? (
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      className="border border-amber-200 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Nome"
-                      value={current.eventoData.responsavelDia}
-                      onChange={(e) => updateField("eventoData", "responsavelDia", e.target.value)}
-                    />
-                    <input
-                      className="border border-amber-200 rounded px-2 py-1 text-sm outline-none"
-                      placeholder="Telefone"
-                      value={current.eventoData.contatoDia}
-                      onChange={(e) => updateField("eventoData", "contatoDia", e.target.value)}
-                    />
+
+              {/* Evento */}
+              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                  <CalIcon className="w-5 h-5 text-slate-500" />
+                  <h3 className="font-bold text-slate-800">Dados do Evento & Agendamento</h3>
+                </div>
+                <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                  <EditableField label="Nome do Evento" value={current.event_name} field="event_name" span2 bold editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Finalidade" value={current.event_purpose || ""} field="event_purpose" span2 editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Participantes" value={current.estimated_attendees ? String(current.estimated_attendees) : ""} field="estimated_attendees" editing={isEditing} onChange={(f, v) => updateDraft(f, v ? Number(v) : null)} />
+                  <EditableField label="Forma de Pagamento" value={current.payment_method || ""} field="payment_method" editing={isEditing} onChange={updateDraft} />
+
+                  {/* Horarios — somente leitura */}
+                  <div className="col-span-2 bg-blue-50 p-3 rounded border border-blue-100">
+                    <span className="block text-xs font-bold text-blue-600 uppercase mb-1">Horarios Reservados</span>
+                    <p className="text-blue-900 font-medium">{formatSlots(current.horarios_reservados)}</p>
                   </div>
-                ) : (
-                  <p className="text-amber-900 font-medium">
-                    {current.eventoData.responsavelDia} — {current.eventoData.contatoDia}
-                  </p>
-                )}
+
+                  {/* Responsavel no dia */}
+                  <EditableField label="Responsavel no dia" value={current.onsite_contact_name || ""} field="onsite_contact_name" editing={isEditing} onChange={updateDraft} />
+                  <EditableField label="Contato no dia" value={current.onsite_contact_phone || ""} field="onsite_contact_phone" editing={isEditing} onChange={updateDraft} />
+                </div>
               </div>
-              <div className="col-span-2">
-                <span className="block text-xs font-medium text-slate-400 uppercase mb-1">Informacoes Adicionais</span>
-                {isEditing ? (
-                  <textarea
-                    rows={2}
-                    className="w-full border border-slate-300 rounded px-2 py-1 outline-none focus:border-[#184689]"
-                    value={current.eventoData.infoAdicional}
-                    onChange={(e) => updateField("eventoData", "infoAdicional", e.target.value)}
-                  />
-                ) : current.eventoData.infoAdicional ? (
-                  <p className="text-slate-700 italic bg-slate-50 p-3 rounded border border-slate-100">
-                    &quot;{current.eventoData.infoAdicional}&quot;
-                  </p>
-                ) : (
-                  <span className="text-slate-400">-</span>
-                )}
-              </div>
+
+              {/* Financeiro */}
+              {(current.coupon_code || current.coupon_discount_amount) && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                    <DollarSign className="w-5 h-5 text-slate-500" />
+                    <h3 className="font-bold text-slate-800">Cupom & Descontos</h3>
+                  </div>
+                  <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                    <Field label="Cupom" value={current.coupon_code || "Nenhum"} />
+                    <Field label="Desconto do Cupom" value={formatAmount(current.coupon_discount_amount)} />
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="flex items-center justify-center h-40 text-slate-400">
+              Nenhum detalhe encontrado para esta reserva.
             </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-slate-200 bg-white shrink-0">
-          {isEditing ? (
-            <div className="flex gap-3">
-              <button
-                onClick={handleEditCancel}
-                className="flex-1 py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
-              >
-                Cancelar Edicao
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#184689] text-white rounded-lg font-bold text-sm hover:bg-[#113262] transition-colors shadow-sm"
-              >
-                <Save className="w-4 h-4" /> Salvar Alteracoes
-              </button>
-            </div>
-          ) : (
+        {current && !isLoading && !isEditing && (
+          <div className="p-4 border-t border-slate-200 bg-white shrink-0">
             <div className="grid grid-cols-2 gap-3">
-              {booking.status === "Pendente" ? (
+              {status === "Pendente" || status === "Pre-reserva" ? (
                 <>
-                  <button className="w-full py-2.5 bg-white border border-red-200 text-red-600 rounded-lg font-medium text-sm hover:bg-red-50 transition-colors">
+                  <button
+                    disabled={statusAction !== null}
+                    onClick={() => handleStatusChange("Cancelada")}
+                    className="w-full py-2.5 bg-white border border-red-200 text-red-600 rounded-lg font-medium text-sm hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {statusAction === "reject" && <Loader2 className="w-4 h-4 animate-spin" />}
                     Rejeitar
                   </button>
-                  <button className="w-full py-2.5 bg-emerald-600 text-white rounded-lg font-medium text-sm hover:bg-emerald-700 transition-colors shadow-sm">
+                  <button
+                    disabled={statusAction !== null}
+                    onClick={() => handleStatusChange("Confirmada")}
+                    className="w-full py-2.5 bg-emerald-600 text-white rounded-lg font-medium text-sm hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {statusAction === "approve" && <Loader2 className="w-4 h-4 animate-spin" />}
                     Aprovar Reserva
                   </button>
                 </>
               ) : (
                 <button
                   className="col-span-2 w-full py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
-                  onClick={handleClose}
+                  onClick={onClose}
                 >
                   Fechar Dossie
                 </button>
               )}
             </div>
-          )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ---- Field Components ---- */
+
+function Field({ label, value, mono, bold, span2 }: {
+  label: string
+  value: string
+  mono?: boolean
+  bold?: boolean
+  span2?: boolean
+}) {
+  return (
+    <div className={span2 ? "col-span-2" : ""}>
+      <span className="block text-xs font-medium text-slate-400 uppercase mb-1">{label}</span>
+      <span className={`${bold ? "font-semibold text-slate-800" : "text-slate-700"} ${mono ? "font-mono" : ""}`}>
+        {value || "-"}
+      </span>
+    </div>
+  )
+}
+
+function EditableField({ label, value, field, mono, bold, span2, editing, onChange }: {
+  label: string
+  value: string
+  field: keyof BookingDetail
+  mono?: boolean
+  bold?: boolean
+  span2?: boolean
+  editing: boolean
+  onChange: (field: keyof BookingDetail, value: string) => void
+}) {
+  if (!editing) {
+    return <Field label={label} value={value} mono={mono} bold={bold} span2={span2} />
+  }
+
+  return (
+    <div className={span2 ? "col-span-2" : ""}>
+      <label className="block text-xs font-medium text-slate-400 uppercase mb-1">{label}</label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(field, e.target.value)}
+        className={`w-full px-3 py-1.5 text-sm border border-blue-200 bg-blue-50 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 ${bold ? "font-semibold text-slate-800" : "text-slate-700"} ${mono ? "font-mono" : ""}`}
+      />
+    </div>
+  )
+}
+
+function DossierSkeleton() {
+  return (
+    <div className="space-y-6 animate-pulse">
+      <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="space-y-2">
+          <div className="h-3 w-24 bg-slate-200 rounded" />
+          <div className="h-6 w-20 bg-slate-200 rounded-full" />
+        </div>
+        <div className="space-y-2 text-right">
+          <div className="h-3 w-20 bg-slate-200 rounded ml-auto" />
+          <div className="h-8 w-28 bg-slate-200 rounded ml-auto" />
         </div>
       </div>
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="bg-slate-100 px-4 py-3 border-b border-slate-200">
+            <div className="h-5 w-40 bg-slate-200 rounded" />
+          </div>
+          <div className="p-4 grid grid-cols-2 gap-4">
+            <div className="h-10 bg-slate-100 rounded" />
+            <div className="h-10 bg-slate-100 rounded" />
+            <div className="h-10 bg-slate-100 rounded col-span-2" />
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

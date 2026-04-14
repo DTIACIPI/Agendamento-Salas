@@ -46,6 +46,10 @@ function FormularioContent() {
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [popup, setPopup] = useState<{ type: "success" | "error"; title: string; description: string } | null>(null)
+  // Campos pre-preenchidos pelo Supera ficam travados para edicao
+  const [lockedFields, setLockedFields] = useState<Set<string>>(new Set())
+  // Exibe erros de validacao apos tentativa de submit
+  const [showErrors, setShowErrors] = useState(false)
 
   // Estados do Formulário
   const [formData, setFormData] = useState({
@@ -65,7 +69,6 @@ function FormularioContent() {
     cargoResponsavel: "",
     nomeEvento: "",
     finalidadeEvento: "",
-    numeroParticipantes: "",
     responsavelLocal: "",
     contatoLocal: "",
     opcaoPagamento: "",
@@ -155,8 +158,7 @@ function FormularioContent() {
 
             finalEndereco = finalEndereco.replace(/[-,\s]+$/, "").trim();
 
-            setFormData(prev => ({
-              ...prev,
+            const superaFields: Record<string, string> = {
               razaoSocial: c.razaoSocial || c.razao_social || "",
               nomeFantasia: c.nomeFantasia || c.nome_fantasia || "",
               inscricaoEstadual: c.inscricaoEstadual || c.inscricao_estadual || "",
@@ -167,10 +169,19 @@ function FormularioContent() {
               complemento: c.complemento || "",
               cidade: c.cidade || "",
               estado: c.uf || c.estado || "",
-              nomeResponsavel: c.responsavel || "", 
+              nomeResponsavel: c.responsavel || "",
               emailResponsavel: rawEmail,
-              telefoneResponsavel: c.telefone || c.celular || ""
-            }))
+              telefoneResponsavel: c.telefone || c.celular || "",
+            }
+
+            // Trava para edicao apenas os campos que vieram preenchidos
+            const locked = new Set<string>()
+            for (const [key, val] of Object.entries(superaFields)) {
+              if (val.trim()) locked.add(key)
+            }
+            setLockedFields(locked)
+
+            setFormData(prev => ({ ...prev, ...superaFields }))
           }
         }
       } catch (err) {
@@ -181,8 +192,32 @@ function FormularioContent() {
     setIsHydrated(true)
   }, [])
 
+  const maskPhone = (v: string) => {
+    let d = v.replace(/\D/g, "").slice(0, 11)
+    if (d.length <= 2) return d.replace(/^(\d{0,2})/, "($1")
+    if (d.length <= 7) return d.replace(/^(\d{2})(\d{0,5})/, "($1) $2")
+    return d.replace(/^(\d{2})(\d{5})(\d{0,4})/, "($1) $2-$3")
+  }
+
+  const maskCep = (v: string) => {
+    let d = v.replace(/\D/g, "").slice(0, 8)
+    if (d.length <= 5) return d
+    return d.replace(/^(\d{5})(\d{0,3})/, "$1-$2")
+  }
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    if (lockedFields.has(name)) return
+
+    if (name === "telefoneResponsavel" || name === "contatoLocal") {
+      setFormData(prev => ({ ...prev, [name]: maskPhone(value) }))
+      return
+    }
+    if (name === "cep") {
+      setFormData(prev => ({ ...prev, [name]: maskCep(value) }))
+      return
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }));
   }
 
@@ -199,17 +234,26 @@ function FormularioContent() {
     { key: "cargoResponsavel", label: "Cargo" },
     { key: "nomeEvento", label: "Nome do Evento" },
     { key: "finalidadeEvento", label: "Finalidade do Evento" },
-    { key: "numeroParticipantes", label: "Número de Participantes" },
     { key: "responsavelLocal", label: "Responsável no dia do evento" },
     { key: "contatoLocal", label: "Contato do Responsável no dia" },
     { key: "opcaoPagamento", label: "Opção de Pagamento" },
   ]
+
+  const isLocked = (name: string) => lockedFields.has(name)
+  const isFieldRequired = (name: string) => requiredFields.some(f => f.key === name)
+  const hasError = (name: string) => showErrors && isFieldRequired(name) && !formData[name as keyof typeof formData]?.trim()
+  const inputClass = (name: string) => {
+    if (isLocked(name)) return "w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
+    const errorBorder = hasError(name) ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
+    return `w-full rounded-md border ${errorBorder} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
+  }
 
   const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "")
 
   const handleFinalize = async () => {
     const missing = requiredFields.filter(f => formData[f.key].trim() === "")
     if (missing.length > 0) {
+      setShowErrors(true)
       setPopup({
         type: "error",
         title: "Preencha todos os campos obrigatórios",
@@ -269,7 +313,7 @@ function FormularioContent() {
           endTime: item.endTime,
           event_name: formData.nomeEvento,
           event_purpose: formData.finalidadeEvento,
-          estimated_attendees: parseInt(formData.numeroParticipantes, 10) || 0,
+          estimated_attendees: null,
           onsite_contact_name: formData.responsavelLocal,
           onsite_contact_phone: formData.contatoLocal,
           payment_method: formData.opcaoPagamento,
@@ -472,11 +516,12 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Razão social</label>
-                <input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} readOnly={isLocked("razaoSocial")} type="text" className={inputClass("razaoSocial")} />
+                {hasError("razaoSocial") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome fantasia</label>
-                <input name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="nomeFantasia" value={formData.nomeFantasia} onChange={handleChange} readOnly={isLocked("nomeFantasia")} type="text" className={inputClass("nomeFantasia")} />
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">CNPJ</label>
@@ -484,31 +529,36 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Inscrição estadual</label>
-                <input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} readOnly={isLocked("inscricaoEstadual")} type="text" className={inputClass("inscricaoEstadual")} />
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">CEP</label>
-                <input name="cep" value={formData.cep} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="cep" value={formData.cep} onChange={handleChange} readOnly={isLocked("cep")} type="text" inputMode="numeric" placeholder="00000-000" maxLength={9} className={inputClass("cep")} />
+                {hasError("cep") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-8">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Endereço</label>
-                <input name="endereco" value={formData.endereco} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="endereco" value={formData.endereco} onChange={handleChange} readOnly={isLocked("endereco")} type="text" className={inputClass("endereco")} />
+                {hasError("endereco") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-3">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nº</label>
-                <input name="numero" value={formData.numero} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="numero" value={formData.numero} onChange={handleChange} readOnly={isLocked("numero")} type="text" className={inputClass("numero")} />
+                {hasError("numero") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-5">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Complemento</label>
-                <input name="complemento" value={formData.complemento} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="complemento" value={formData.complemento} onChange={handleChange} readOnly={isLocked("complemento")} type="text" className={inputClass("complemento")} />
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Bairro</label>
-                <input name="bairro" value={formData.bairro} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="bairro" value={formData.bairro} onChange={handleChange} readOnly={isLocked("bairro")} type="text" className={inputClass("bairro")} />
+                {hasError("bairro") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-8">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cidade</label>
-                <input name="cidade" value={formData.cidade} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="cidade" value={formData.cidade} onChange={handleChange} readOnly={isLocked("cidade")} type="text" className={inputClass("cidade")} />
+                {hasError("cidade") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Estado</label>
@@ -522,19 +572,23 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome completo do responsável</label>
-                <input name="nomeResponsavel" value={formData.nomeResponsavel} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="nomeResponsavel" value={formData.nomeResponsavel} onChange={handleChange} readOnly={isLocked("nomeResponsavel")} type="text" className={inputClass("nomeResponsavel")} />
+                {hasError("nomeResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">E-mail do responsável</label>
-                <input name="emailResponsavel" value={formData.emailResponsavel} onChange={handleChange} type="email" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="emailResponsavel" value={formData.emailResponsavel} onChange={handleChange} readOnly={isLocked("emailResponsavel")} type="email" className={inputClass("emailResponsavel")} />
+                {hasError("emailResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Telefone do responsável</label>
-                <input name="telefoneResponsavel" value={formData.telefoneResponsavel} onChange={handleChange} type="tel" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="telefoneResponsavel" value={formData.telefoneResponsavel} onChange={handleChange} readOnly={isLocked("telefoneResponsavel")} type="tel" inputMode="numeric" placeholder="(00) 00000-0000" maxLength={15} className={inputClass("telefoneResponsavel")} />
+                {hasError("telefoneResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cargo</label>
-                <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" className={inputClass("cargoResponsavel")} />
+                {hasError("cargoResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
             </div>
           </div>
@@ -544,11 +598,13 @@ function FormularioContent() {
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
-                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" className={inputClass("nomeEvento")} />
+                {hasError("nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
-                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" className={inputClass("finalidadeEvento")} />
+                {hasError("finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Data</label>
@@ -577,26 +633,25 @@ function FormularioContent() {
                   className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" 
                 />
               </div>
-              <div className="md:col-span-4">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Número de participantes</label>
-                <input name="numeroParticipantes" value={formData.numeroParticipantes} onChange={handleChange} type="number" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
-              </div>
-              <div className="md:col-span-8">
+              <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsável no dia do evento</label>
-                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" className={inputClass("responsavelLocal")} />
+                {hasError("responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsável</label>
-                <input name="contatoLocal" value={formData.contatoLocal} onChange={handleChange} type="tel" className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm" />
+                <input name="contatoLocal" value={formData.contatoLocal} onChange={handleChange} type="tel" inputMode="numeric" placeholder="(00) 00000-0000" maxLength={15} className={inputClass("contatoLocal")} />
+                {hasError("contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opção de pagamento</label>
-                <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm">
+                <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className={inputClass("opcaoPagamento")}>
                   <option value="">Selecione...</option>
                   <option value="boleto">Boleto Bancário</option>
                   <option value="cartao_credito">Cartão de Crédito</option>
                   <option value="pix">PIX</option>
                 </select>
+                {hasError("opcaoPagamento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-12">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informações adicionais do evento</label>

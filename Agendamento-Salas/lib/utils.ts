@@ -28,6 +28,22 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Avança N dias úteis (seg-sex) a partir de uma data.
+ * Retorna a data resultante com horário zerado.
+ */
+export function addBusinessDays(from: Date, days: number): Date {
+  const result = new Date(from)
+  result.setHours(0, 0, 0, 0)
+  let added = 0
+  while (added < days) {
+    result.setDate(result.getDate() + 1)
+    const dow = result.getDay()
+    if (dow !== 0 && dow !== 6) added++
+  }
+  return result
+}
+
 export function formatDateToISO(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }

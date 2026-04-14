@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import type { OccupiedSlot } from "@/app/page"
-import { type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
+import { type SystemSettings, DEFAULT_SETTINGS, addBusinessDays } from "@/lib/utils"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
@@ -316,22 +316,19 @@ export function BookingCalendar({
     return fullyBookedDatesSet.has(key);
   }, [fullyBookedDatesSet]);
 
-  const todayStart = useMemo(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, []);
+  // Antecedencia minima de 3 dias uteis (seg-sex)
+  const minBookingDate = useMemo(() => addBusinessDays(new Date(), 3), []);
 
   const disabledDates = useMemo(() => {
     const matchers: any[] = [
-      { before: todayStart },
+      { before: minBookingDate },
       isDateFullyBooked
     ]
     if (systemSettings.block_sundays) {
       matchers.splice(1, 0, { dayOfWeek: [0] })
     }
     return matchers
-  }, [todayStart, isDateFullyBooked, systemSettings.block_sundays]);
+  }, [minBookingDate, isDateFullyBooked, systemSettings.block_sundays]);
 
   const handlePrevImage = useCallback(() => {
     setCarouselIndex((prev) => (prev === 0 ? roomImages.length - 1 : prev - 1))
