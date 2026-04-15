@@ -9,18 +9,19 @@ import { AgendaView } from "@/components/views/agenda-view"
 import { SalasView } from "@/components/views/salas-view"
 import { CuponsView } from "@/components/views/cupons-view"
 import { ContratosView } from "@/components/views/contratos-view"
-import { ClientesView } from "@/components/views/clientes-view"
+import { EmpresasView } from "@/components/views/empresas-view"
 import { ConfigView } from "@/components/views/config-view"
 import { BookingDossier } from "@/components/modals/booking-dossier"
+import { CompanyDossier } from "@/components/modals/company-dossier"
 import { CouponModal } from "@/components/modals/coupon-modal"
 import { RoomModal } from "@/components/modals/room-modal"
 import {
-  initialClients,
   initialContracts,
 } from "@/lib/mock-data"
 import { API_BASE_URL, DEFAULT_SETTINGS } from "@/lib/utils"
 import type {
   BookingListItem,
+  Company,
   Coupon,
   Room,
   SystemSettings,
@@ -29,7 +30,17 @@ import type {
 
 export default function AdminDashboard() {
   // Layout states
-  const [activeTab, setActiveTab] = useState<TabId>("dashboard")
+  const VALID_TABS: TabId[] = ["dashboard", "reservas", "agenda", "salas", "cupons", "contratos", "empresas", "config"]
+  const [activeTab, setActiveTab] = useState<TabId | null>(null)
+  useEffect(() => {
+    const hash = window.location.hash.replace("#", "") as TabId
+    setActiveTab(VALID_TABS.includes(hash) ? hash : "dashboard")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const handleTabChange = (tab: TabId) => {
+    setActiveTab(tab)
+    window.location.hash = tab
+  }
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -46,8 +57,18 @@ export default function AdminDashboard() {
   const [bookingsPage, setBookingsPage] = useState(1)
   const BOOKINGS_PER_PAGE = 10
 
+  // Data states: companies (API)
+  const [companies, setCompanies] = useState<Company[]>([])
+  const [isCompaniesLoading, setIsCompaniesLoading] = useState(true)
+  const [companiesPage, setCompaniesPage] = useState(1)
+  const [companiesTotalPages, setCompaniesTotalPages] = useState(1)
+  const [companiesTotalRecords, setCompaniesTotalRecords] = useState(0)
+  const COMPANIES_PER_PAGE = 10
+
   // Modal states
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
+  const [bookingReturnCompanyId, setBookingReturnCompanyId] = useState<string | null>(null)
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(null)
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false)
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null)
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false)
@@ -161,7 +182,9 @@ export default function AdminDashboard() {
         { cache: "no-store", signal },
       )
       if (!res.ok) throw new Error("Falha ao buscar reservas")
-      const data = await res.json()
+      const text = await res.text()
+      if (!text) { setBookings([]); setBookingsTotal(0); return }
+      const data = JSON.parse(text)
       if (Array.isArray(data?.data)) {
         setBookings(data.data as BookingListItem[])
         setBookingsTotal(typeof data.total === "number" ? data.total : 0)
@@ -179,6 +202,38 @@ export default function AdminDashboard() {
     fetchBookings(bookingsPage, controller.signal)
     return () => controller.abort()
   }, [bookingsPage, fetchBookings])
+
+  // Fetch: companies (paginado)
+  const fetchCompanies = useCallback(async (page?: number, signal?: AbortSignal) => {
+    const p = page ?? companiesPage
+    setIsCompaniesLoading(true)
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/webhook/api/companies?page=${p}&limit=${COMPANIES_PER_PAGE}`,
+        { cache: "no-store", signal },
+      )
+      if (!res.ok) throw new Error("Falha ao buscar empresas")
+      const data = await res.json()
+      if (Array.isArray(data?.data)) {
+        setCompanies(data.data as Company[])
+      }
+      if (data?.pagination) {
+        setCompaniesTotalPages(data.pagination.total_pages ?? 1)
+        setCompaniesTotalRecords(data.pagination.total_records ?? 0)
+      }
+    } catch (error) {
+      if ((error as Error).name === "AbortError") return
+      console.error("Erro ao carregar empresas:", error)
+    } finally {
+      setIsCompaniesLoading(false)
+    }
+  }, [companiesPage])
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetchCompanies(companiesPage, controller.signal)
+    return () => controller.abort()
+  }, [companiesPage, fetchCompanies])
 
   // Handlers
   const handleBookingStatusChanged = async () => {
@@ -228,11 +283,22 @@ export default function AdminDashboard() {
     }
   }
 
+  const handleCompaniesPageChange = (page: number) => {
+    setCompaniesPage(page)
+  }
+
+  const handleCompanyUpdated = () => {
+    fetchCompanies(companiesPage)
+  }
+
+  // Aguardar leitura do hash antes de renderizar (evita flash no F5)
+  if (activeTab === null) return null
+
   return (
     <div className="flex h-screen bg-slate-100 font-sans overflow-hidden text-slate-900">
       <Sidebar
         activeTab={activeTab}
-        onTabChange={setActiveTab}
+        onTabChange={handleTabChange}
         isMobileOpen={isMobileMenuOpen}
         onMobileClose={() => setIsMobileMenuOpen(false)}
       />
@@ -263,6 +329,7 @@ export default function AdminDashboard() {
                 rooms={rooms}
                 systemSettings={systemSettings}
                 isSettingsLoading={isSettingsLoading}
+                onOpenBooking={setSelectedBookingId}
               />
             )}
             {activeTab === "salas" && (
@@ -283,7 +350,17 @@ export default function AdminDashboard() {
               />
             )}
             {activeTab === "contratos" && <ContratosView contracts={initialContracts} />}
-            {activeTab === "clientes" && <ClientesView clients={initialClients} />}
+            {activeTab === "empresas" && (
+              <EmpresasView
+                companies={companies}
+                isLoading={isCompaniesLoading}
+                page={companiesPage}
+                totalPages={companiesTotalPages}
+                totalRecords={companiesTotalRecords}
+                onPageChange={handleCompaniesPageChange}
+                onOpenDetail={setSelectedCompanyId}
+              />
+            )}
             {activeTab === "config" && (
               <ConfigView
                 systemSettings={systemSettings}
@@ -297,8 +374,27 @@ export default function AdminDashboard() {
         {/* Modais & Sheets */}
         <BookingDossier
           bookingId={selectedBookingId}
-          onClose={() => setSelectedBookingId(null)}
+          onClose={() => {
+            setSelectedBookingId(null)
+            setBookingReturnCompanyId(null)
+          }}
           onStatusChanged={handleBookingStatusChanged}
+          onBack={bookingReturnCompanyId ? () => {
+            setSelectedBookingId(null)
+            setSelectedCompanyId(bookingReturnCompanyId)
+            setBookingReturnCompanyId(null)
+          } : undefined}
+        />
+        <CompanyDossier
+          companyId={selectedCompanyId}
+          companies={companies}
+          onClose={() => setSelectedCompanyId(null)}
+          onCompanyUpdated={handleCompanyUpdated}
+          onOpenBooking={(bookingId) => {
+            setBookingReturnCompanyId(selectedCompanyId)
+            setSelectedCompanyId(null)
+            setSelectedBookingId(bookingId)
+          }}
         />
         <CouponModal
           open={isCouponModalOpen}

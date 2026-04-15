@@ -38,6 +38,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
   const [minHoursWeekday, setMinHoursWeekday] = useState("2")
   const [saturdayPrice, setSaturdayPrice] = useState("")
   const [minHoursSaturday, setMinHoursSaturday] = useState("4")
+  const [cleaningBuffer, setCleaningBuffer] = useState("30")
   const [amenities, setAmenities] = useState<string[]>([])
   const [imageEntries, setImageEntries] = useState<ImageEntry[]>([])
   const [coverIndex, setCoverIndex] = useState(0)
@@ -55,6 +56,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
     setMinHoursWeekday("2")
     setSaturdayPrice("")
     setMinHoursSaturday("4")
+    setCleaningBuffer("30")
     setAmenities([])
     setImageEntries([])
     setCoverIndex(0)
@@ -87,6 +89,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
       setSaturdayPrice(String(sPrice))
       setMinHoursWeekday(String(d.min_hours_weekday ?? 2))
       setMinHoursSaturday(String(d.min_hours_weekend ?? 4))
+      setCleaningBuffer(String(d.cleaning_buffer ?? 30))
 
       setAmenities(d.infrastructure ?? d.amenities ?? [])
 
@@ -214,6 +217,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
         min_hours_weekend: Number(minHoursSaturday),
         price_per_hour_weekday: Number(weekdayPrice),
         price_per_hour_weekend: Number(saturdayPrice),
+        cleaning_buffer: Number(cleaningBuffer),
         status,
         images: allUrls,
       }
@@ -403,6 +407,20 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
                       />
                     </div>
                     <div>
+                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
+                        Tempo de Limpeza (min)
+                      </label>
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        value={cleaningBuffer}
+                        onChange={(e) => setCleaningBuffer(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
+                        placeholder="Ex: 30"
+                      />
+                    </div>
+                    <div className="col-span-2">
                       <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
                         Status
                       </label>

@@ -24,6 +24,7 @@ interface PricingData {
     discount: number
     total: number
     quantidade_reservas: number
+    cleaning_buffer?: number
   }[]
 }
 
@@ -67,14 +68,24 @@ function FormularioContent() {
     emailResponsavel: "",
     telefoneResponsavel: "",
     cargoResponsavel: "",
-    nomeEvento: "",
-    finalidadeEvento: "",
-    participantes: "",
-    responsavelLocal: "",
-    contatoLocal: "",
     opcaoPagamento: "",
-    observacoes: "",
   })
+
+  // Dados de evento por booking (indexado por booking.id)
+  interface EventData {
+    nomeEvento: string
+    finalidadeEvento: string
+    participantes: string
+    responsavelLocal: string
+    contatoLocal: string
+    observacoes: string
+  }
+  const emptyEventData: EventData = {
+    nomeEvento: "", finalidadeEvento: "", participantes: "",
+    responsavelLocal: "", contatoLocal: "", observacoes: "",
+  }
+  const [eventDataMap, setEventDataMap] = useState<Record<string, EventData>>({})
+  const [activeEventTab, setActiveEventTab] = useState<string>("")
 
   useEffect(() => {
     // 1. Recupera as salas e horários selecionados
@@ -193,6 +204,21 @@ function FormularioContent() {
     setIsHydrated(true)
   }, [])
 
+  // Inicializar eventDataMap quando bookings carregam
+  useEffect(() => {
+    if (bookings.length === 0) return
+    setEventDataMap(prev => {
+      const next = { ...prev }
+      for (const b of bookings) {
+        if (!next[b.id]) next[b.id] = { ...emptyEventData }
+      }
+      return next
+    })
+    // Definir aba ativa como o primeiro booking
+    setActiveEventTab(prev => prev || bookings[0]?.id || "")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bookings])
+
   const maskPhone = (v: string) => {
     let d = v.replace(/\D/g, "").slice(0, 11)
     if (d.length <= 2) return d.replace(/^(\d{0,2})/, "($1")
@@ -210,7 +236,7 @@ function FormularioContent() {
     const { name, value } = e.target;
     if (lockedFields.has(name)) return
 
-    if (name === "telefoneResponsavel" || name === "contatoLocal") {
+    if (name === "telefoneResponsavel") {
       setFormData(prev => ({ ...prev, [name]: maskPhone(value) }))
       return
     }
@@ -218,12 +244,21 @@ function FormularioContent() {
       setFormData(prev => ({ ...prev, [name]: maskCep(value) }))
       return
     }
-    if (name === "participantes") {
-      setFormData(prev => ({ ...prev, [name]: value.replace(/\D/g, "") }))
-      return
-    }
 
     setFormData(prev => ({ ...prev, [name]: value }));
+  }
+
+  // Handler para campos de evento por booking
+  const handleEventChange = (bookingId: string, name: keyof EventData, value: string) => {
+    setEventDataMap(prev => ({
+      ...prev,
+      [bookingId]: {
+        ...(prev[bookingId] || emptyEventData),
+        [name]: name === "contatoLocal" ? maskPhone(value)
+               : name === "participantes" ? value.replace(/\D/g, "")
+               : value,
+      },
+    }))
   }
 
   const isValidEmail = (email: string) => {
@@ -242,32 +277,59 @@ function FormularioContent() {
     { key: "emailResponsavel", label: "E-mail do Responsável" },
     { key: "telefoneResponsavel", label: "Telefone do Responsável" },
     { key: "cargoResponsavel", label: "Cargo" },
+    { key: "opcaoPagamento", label: "Opção de Pagamento" },
+  ]
+
+  const requiredEventFields: { key: keyof EventData; label: string }[] = [
     { key: "nomeEvento", label: "Nome do Evento" },
     { key: "finalidadeEvento", label: "Finalidade do Evento" },
     { key: "responsavelLocal", label: "Responsável no dia do evento" },
     { key: "contatoLocal", label: "Contato do Responsável no dia" },
-    { key: "opcaoPagamento", label: "Opção de Pagamento" },
   ]
 
   const isLocked = (name: string) => lockedFields.has(name)
   const isFieldRequired = (name: string) => requiredFields.some(f => f.key === name)
   const hasError = (name: string) => showErrors && isFieldRequired(name) && !formData[name as keyof typeof formData]?.trim()
+  const hasEventError = (bookingId: string, name: keyof EventData) => {
+    if (!showErrors) return false
+    if (!requiredEventFields.some(f => f.key === name)) return false
+    return !(eventDataMap[bookingId]?.[name]?.trim())
+  }
   const inputClass = (name: string) => {
     if (isLocked(name)) return "w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
     const errorBorder = hasError(name) ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
     return `w-full rounded-md border ${errorBorder} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
   }
 
-  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "") && isValidEmail(formData.emailResponsavel)
+  const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
+
+  const allEventsValid = cartBookings.every(b => {
+    const ed = eventDataMap[b.id]
+    if (!ed) return false
+    return requiredEventFields.every(f => ed[f.key]?.trim() !== "")
+  })
+
+  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "") && isValidEmail(formData.emailResponsavel) && allEventsValid
 
   const handleFinalize = async () => {
     const missing = requiredFields.filter(f => formData[f.key].trim() === "")
-    if (missing.length > 0) {
+    // Checar campos de evento obrigatórios por booking
+    const missingEvents: string[] = []
+    for (const b of cartBookings) {
+      const ed = eventDataMap[b.id]
+      const roomName = rooms.find(r => r.id === b.roomId)?.name || "Sala"
+      for (const f of requiredEventFields) {
+        if (!ed?.[f.key]?.trim()) {
+          missingEvents.push(`${f.label} (${roomName})`)
+        }
+      }
+    }
+    if (missing.length > 0 || missingEvents.length > 0) {
       setShowErrors(true)
       setPopup({
         type: "error",
         title: "Preencha todos os campos obrigatórios",
-        description: missing.map(f => f.label).join(", "),
+        description: [...missing.map(f => f.label), ...missingEvents].join(", "),
       })
       return
     }
@@ -301,6 +363,19 @@ function FormularioContent() {
 
       const finalAmount = priceAfterAssociation - itemCouponDiscount
 
+      // Somar cleaning_buffer da sala ao endTime para bloquear o calendário
+      const roomName = rooms.find(r => r.id === item.roomId)?.name || ""
+      const roomPricingDetail = pricingData?.detalhes.find(d => d.space_name === roomName)
+      const bufferMinutes = roomPricingDetail?.cleaning_buffer ?? 0
+      let adjustedEndTime = item.endTime
+      if (bufferMinutes > 0 && item.endTime) {
+        const [h, m] = item.endTime.split(":").map(Number)
+        const totalMin = h * 60 + m + bufferMinutes
+        const endH = String(Math.floor(totalMin / 60)).padStart(2, "0")
+        const endM = String(totalMin % 60).padStart(2, "0")
+        adjustedEndTime = `${endH}:${endM}`
+      }
+
       const payload = {
         company: {
           cnpj: cnpj.replace(/\D/g, ""),
@@ -317,15 +392,15 @@ function FormularioContent() {
         },
         booking: {
           space_id: item.roomId,
-          space_name: rooms.find(r => r.id === item.roomId)?.name || "",
+          space_name: roomName,
           date: item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : "",
           startTime: item.startTime,
-          endTime: item.endTime,
-          event_name: formData.nomeEvento,
-          event_purpose: formData.finalidadeEvento,
-          estimated_attendees: formData.participantes ? parseInt(formData.participantes) : null,
-          onsite_contact_name: formData.responsavelLocal,
-          onsite_contact_phone: formData.contatoLocal,
+          endTime: adjustedEndTime,
+          event_name: eventDataMap[item.id]?.nomeEvento || "",
+          event_purpose: eventDataMap[item.id]?.finalidadeEvento || "",
+          estimated_attendees: eventDataMap[item.id]?.participantes ? parseInt(eventDataMap[item.id].participantes) : null,
+          onsite_contact_name: eventDataMap[item.id]?.responsavelLocal || "",
+          onsite_contact_phone: (eventDataMap[item.id]?.contatoLocal || "").replace(/\D/g, ""),
           payment_method: formData.opcaoPagamento,
           total_amount: finalAmount,
           coupon_code: appliedCoupon?.code || null,
@@ -370,8 +445,6 @@ function FormularioContent() {
       setIsSubmitting(false)
     }
   }
-
-  const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
 
   const formatMoney = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -572,7 +645,40 @@ function FormularioContent() {
               </div>
               <div className="md:col-span-4">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Estado</label>
-                <input name="estado" value={formData.estado} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                {isLocked("estado") ? (
+                  <input name="estado" value={formData.estado} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                ) : (
+                  <select name="estado" value={formData.estado} onChange={handleChange} className={inputClass("estado")}>
+                    <option value="">Selecione...</option>
+                    <option value="AC">AC</option>
+                    <option value="AL">AL</option>
+                    <option value="AP">AP</option>
+                    <option value="AM">AM</option>
+                    <option value="BA">BA</option>
+                    <option value="CE">CE</option>
+                    <option value="DF">DF</option>
+                    <option value="ES">ES</option>
+                    <option value="GO">GO</option>
+                    <option value="MA">MA</option>
+                    <option value="MT">MT</option>
+                    <option value="MS">MS</option>
+                    <option value="MG">MG</option>
+                    <option value="PA">PA</option>
+                    <option value="PB">PB</option>
+                    <option value="PR">PR</option>
+                    <option value="PE">PE</option>
+                    <option value="PI">PI</option>
+                    <option value="RJ">RJ</option>
+                    <option value="RN">RN</option>
+                    <option value="RS">RS</option>
+                    <option value="RO">RO</option>
+                    <option value="RR">RR</option>
+                    <option value="SC">SC</option>
+                    <option value="SP">SP</option>
+                    <option value="SE">SE</option>
+                    <option value="TO">TO</option>
+                  </select>
+                )}
               </div>
             </div>
           </div>
@@ -605,61 +711,114 @@ function FormularioContent() {
           </div>
 
           <div className="bg-white p-6 rounded-xl border shadow-sm">
-            <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-5">Sobre o Evento</h3>
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
-              <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
-                <input name="nomeEvento" value={formData.nomeEvento} onChange={handleChange} type="text" placeholder="Ex: Workshop de Tecnologia" className={inputClass("nomeEvento")} />
-                {hasError("nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+            <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-4">Sobre o Evento</h3>
+
+            {cartBookings.length > 1 && (
+              <p className="text-sm text-slate-500 mb-3 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                Preencha as informacoes do evento para <strong>cada sala selecionada</strong>. Utilize as abas abaixo para alternar entre elas.
+              </p>
+            )}
+
+            {/* Abas por sala/booking — só mostra se houver mais de 1 */}
+            {cartBookings.length > 1 && (
+              <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+                {cartBookings.map((b) => {
+                  const room = rooms.find(r => r.id === b.roomId)
+                  const isActive = activeEventTab === b.id
+                  const ed = eventDataMap[b.id]
+                  const hasIncomplete = requiredEventFields.some(f => !ed?.[f.key]?.trim())
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => setActiveEventTab(b.id)}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border ${
+                        isActive
+                          ? "bg-[#184689] text-white border-[#184689]"
+                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span>{room?.name || "Sala"}</span>
+                      <span className={`text-[10px] ${isActive ? "text-blue-200" : "text-slate-400"}`}>
+                        {b.selectedRange.from?.toLocaleDateString("pt-BR")} {b.startTime}-{b.endTime}
+                      </span>
+                      {showErrors && hasIncomplete && (
+                        <span className={`w-2 h-2 rounded-full ${isActive ? "bg-red-300" : "bg-red-500"}`} />
+                      )}
+                    </button>
+                  )
+                })}
               </div>
-              <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
-                <input name="finalidadeEvento" value={formData.finalidadeEvento} onChange={handleChange} type="text" placeholder="Ex: Treinamento, Reunião, Palestra..." className={inputClass("finalidadeEvento")} />
-                {hasError("finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-              </div>
-              <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes estimados</label>
-                <input name="participantes" value={formData.participantes} onChange={handleChange} type="text" inputMode="numeric" placeholder="Ex: 50" className={inputClass("participantes")} />
-              </div>
-              <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Data</label>
-                <input
-                  type="text"
-                  value={cartBookings.length === 1 && cartBookings[0].selectedRange.from ? cartBookings[0].selectedRange.from.toLocaleDateString("pt-BR") : (cartBookings.length > 1 ? "Múltiplas datas (vide resumo)" : "")}
-                  readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Horário de início</label>
-                <input
-                  type="text"
-                  value={cartBookings.length === 1 ? cartBookings[0].startTime : (cartBookings.length > 1 ? "Vários" : "")}
-                  readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Horário de término</label>
-                <input
-                  type="text"
-                  value={cartBookings.length === 1 ? cartBookings[0].endTime : (cartBookings.length > 1 ? "Vários" : "")}
-                  readOnly
-                  className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
-                />
-              </div>
-              <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsável no dia do evento</label>
-                <input name="responsavelLocal" value={formData.responsavelLocal} onChange={handleChange} type="text" placeholder="Nome de quem estará presente" className={inputClass("responsavelLocal")} />
-                {hasError("responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-              </div>
+            )}
+
+            {/* Campos do evento — renderiza o booking ativo */}
+            {cartBookings.map((b) => {
+              if (cartBookings.length > 1 && activeEventTab !== b.id) return null
+              const room = rooms.find(r => r.id === b.roomId)
+              const ed = eventDataMap[b.id] || emptyEventData
+              const evInputClass = (name: keyof EventData) => {
+                const err = hasEventError(b.id, name)
+                const border = err ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
+                return `w-full rounded-md border ${border} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
+              }
+
+              return (
+                <div key={b.id} className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                  {/* Info da sala (readonly) */}
+                  <div className="md:col-span-4">
+                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Sala</label>
+                    <input type="text" value={room?.name || ""} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Data</label>
+                    <input type="text" value={b.selectedRange.from?.toLocaleDateString("pt-BR") || ""} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                  </div>
+                  <div className="md:col-span-2.5">
+                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Inicio</label>
+                    <input type="text" value={b.startTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                  </div>
+                  <div className="md:col-span-2.5">
+                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Termino</label>
+                    <input type="text" value={b.endTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                  </div>
+
+                  {/* Campos editáveis */}
+                  <div className="md:col-span-6">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
+                    <input type="text" value={ed.nomeEvento} onChange={(e) => handleEventChange(b.id, "nomeEvento", e.target.value)} placeholder="Ex: Workshop de Tecnologia" className={evInputClass("nomeEvento")} />
+                    {hasEventError(b.id, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                  </div>
+                  <div className="md:col-span-6">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
+                    <input type="text" value={ed.finalidadeEvento} onChange={(e) => handleEventChange(b.id, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento, Reunião, Palestra..." className={evInputClass("finalidadeEvento")} />
+                    {hasEventError(b.id, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                  </div>
+                  <div className="md:col-span-3">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes</label>
+                    <input type="text" inputMode="numeric" value={ed.participantes} onChange={(e) => handleEventChange(b.id, "participantes", e.target.value)} placeholder="Ex: 50" className={evInputClass("participantes")} />
+                  </div>
+                  <div className="md:col-span-4">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia</label>
+                    <input type="text" value={ed.responsavelLocal} onChange={(e) => handleEventChange(b.id, "responsavelLocal", e.target.value)} placeholder="Nome de quem estará presente" className={evInputClass("responsavelLocal")} />
+                    {hasEventError(b.id, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                  </div>
+                  <div className="md:col-span-5">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel</label>
+                    <input type="tel" inputMode="numeric" value={ed.contatoLocal} onChange={(e) => handleEventChange(b.id, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={evInputClass("contatoLocal")} />
+                    {hasEventError(b.id, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                  </div>
+                  <div className="md:col-span-12">
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informacoes adicionais</label>
+                    <textarea value={ed.observacoes} onChange={(e) => handleEventChange(b.id, "observacoes", e.target.value)} rows={2} placeholder="Necessidades especiais, equipamentos extras..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none" />
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* Pagamento — global, fora das abas */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mt-4 pt-4 border-t border-slate-100">
               <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsável</label>
-                <input name="contatoLocal" value={formData.contatoLocal} onChange={handleChange} type="tel" inputMode="numeric" placeholder="(00) 00000-0000" maxLength={15} className={inputClass("contatoLocal")} />
-                {hasError("contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-              </div>
-              <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opção de pagamento</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opcao de pagamento</label>
                 <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className={inputClass("opcaoPagamento")}>
                   <option value="">Selecione...</option>
                   <option value="boleto">Boleto Bancário</option>
@@ -667,10 +826,6 @@ function FormularioContent() {
                   <option value="pix">PIX</option>
                 </select>
                 {hasError("opcaoPagamento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-              </div>
-              <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informações adicionais do evento</label>
-                <textarea name="observacoes" value={formData.observacoes} onChange={handleChange} rows={3} placeholder="Necessidades especiais, equipamentos extras, observações..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none"></textarea>
               </div>
             </div>
           </div>

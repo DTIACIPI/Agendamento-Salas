@@ -136,7 +136,9 @@ export function CartDialog({
       const res = await fetch(
         `${API_BASE_URL}/webhook/api/coupons/validate?code=${encodeURIComponent(code)}`
       )
-      const raw = await res.json()
+      const text = await res.text()
+      if (!text) { setCouponError("Cupom não encontrado."); setAppliedCoupon(null); return }
+      const raw = JSON.parse(text)
       const data = Array.isArray(raw) ? raw[0] : raw
 
       if (data?.success && data.coupon) {
@@ -353,7 +355,7 @@ export function CartDialog({
                                     const isEditing = editingId === b.id
 
                                     const startOptions = dynamicTimeOptions.slice(0, -1).map(time => {
-                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots, systemSettings.cleaning_buffer)
+                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots)
                                       return { time, disabled: !!occupied }
                                     })
 
@@ -363,7 +365,7 @@ export function CartDialog({
                                       const options = []
                                       for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
                                         const time = dynamicTimeOptions[i]
-                                        const isOccupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, dynamicTimeOptions[i - 1], roomOccupiedSlots, systemSettings.cleaning_buffer)
+                                        const isOccupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, dynamicTimeOptions[i - 1], roomOccupiedSlots)
                                         options.push({ time, disabled: !!isOccupied })
                                       }
                                       return options

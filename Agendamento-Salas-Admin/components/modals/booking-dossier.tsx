@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import {
-  X, Building2, Users, Calendar as CalIcon, Loader2, DollarSign, Pencil, Save, XCircle, FileText,
+  X, Building2, Users, Calendar as CalIcon, Loader2, DollarSign, Pencil, Save, XCircle, FileText, ArrowLeft,
 } from "lucide-react"
 import { toast } from "sonner"
 import { StatusBadge } from "@/components/shared/status-badge"
@@ -16,9 +16,10 @@ interface BookingDossierProps {
   bookingId: string | null
   onClose: () => void
   onStatusChanged: () => void
+  onBack?: () => void
 }
 
-export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingDossierProps) {
+export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: BookingDossierProps) {
   const [booking, setBooking] = useState<BookingDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [statusAction, setStatusAction] = useState<"approve" | "reject" | null>(null)
@@ -66,7 +67,8 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
 
   const startEditing = () => {
     if (!booking) return
-    setDraft({ ...booking })
+    const amount = booking.total_amount ? booking.total_amount.replace(".", ",") : ""
+    setDraft({ ...booking, total_amount: amount })
     setIsEditing(true)
   }
 
@@ -90,13 +92,13 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
           companyData: {
             razaoSocial: draft.razao_social,
             ie: draft.inscricao_estadual || "",
-            cep: draft.cep || "",
+            cep: (draft.cep || "").replace(/\D/g, ""),
             endereco: draft.endereco || "",
           },
           responsavelData: {
             nome: draft.user_name,
             email: draft.user_email,
-            telefone: draft.user_phone || "",
+            telefone: (draft.user_phone || "").replace(/\D/g, ""),
             cargo: "",
           },
           eventoData: {
@@ -104,16 +106,17 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
             finalidade: draft.event_purpose || "",
             participantes: draft.estimated_attendees,
             responsavelDia: draft.onsite_contact_name || "",
-            contatoDia: draft.onsite_contact_phone || "",
+            contatoDia: (draft.onsite_contact_phone || "").replace(/\D/g, ""),
             pagamento: draft.payment_method || "",
-            valorTotal: parseFloat(draft.total_amount) || 0,
+            valorTotal: parseFloat(draft.total_amount.replace(",", ".")) || 0,
             status: draft.status,
           },
         }),
       })
       if (!res.ok) throw new Error("Falha ao salvar alteracoes")
       toast.success("Reserva atualizada com sucesso!")
-      setBooking(draft)
+      // Salva de volta no formato da API (ponto decimal) para exibição correta
+      setBooking({ ...draft, total_amount: draft.total_amount.replace(",", ".") })
       setIsEditing(false)
       setDraft(null)
       onStatusChanged()
@@ -176,9 +179,20 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
       <div className="w-full max-w-2xl bg-white h-full shadow-2xl relative z-50 flex flex-col animate-in slide-in-from-right duration-300">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-200 flex justify-between bg-slate-50 items-center shrink-0">
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">Dossie de Reserva</h2>
-            <p className="text-sm text-slate-500">ID: {bookingId}</p>
+          <div className="flex items-center gap-3">
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="p-1.5 text-slate-400 hover:text-[#184689] hover:bg-blue-50 rounded-lg transition-colors"
+                title="Voltar para empresa"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div>
+              <h2 className="text-xl font-bold text-slate-800">Dossie de Reserva</h2>
+              <p className="text-sm text-slate-500">ID: {bookingId}</p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             {booking && !isLoading && !isEditing && booking.status !== "Confirmada" && booking.status !== "Cancelada" && (
@@ -238,8 +252,11 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged }: BookingD
                         type="text"
                         inputMode="numeric"
                         value={draft?.total_amount ?? ""}
-                        onChange={(e) => updateDraft("total_amount", maskCurrency(e.target.value))}
-                        placeholder="0,00"
+                        onChange={(e) => {
+                          const v = e.target.value.replace(/[^\d,]/g, "")
+                          updateDraft("total_amount", v)
+                        }}
+                        placeholder="2500,00"
                         className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-32 focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-blue-300"
                       />
                     </div>
@@ -438,7 +455,6 @@ const MASK_CONFIG: Record<string, { mask: MaskType; placeholder?: string; maxLen
   cnpj: { mask: "cnpj", placeholder: "00.000.000/0000-00", maxLength: 18, inputMode: "numeric" },
   user_email: { mask: "email", placeholder: "email@exemplo.com" },
   estimated_attendees: { mask: "number", placeholder: "Ex: 50", inputMode: "numeric" },
-  total_amount: { mask: "currency", placeholder: "0,00", inputMode: "numeric" },
 }
 
 function applyMask(field: string, value: string): string {

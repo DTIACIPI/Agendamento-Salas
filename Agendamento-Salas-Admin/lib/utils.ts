@@ -7,7 +7,6 @@ export const API_BASE_URL = "https://acipiapi.eastus.cloudapp.azure.com"
 export const DEFAULT_SETTINGS: SystemSettings = {
   open_time: "08:00",
   close_time: "22:00",
-  cleaning_buffer: 30,
   block_sundays: true,
   discount_tier1_pct: 10,
   discount_tier2_pct: 20,

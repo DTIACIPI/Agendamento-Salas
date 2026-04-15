@@ -67,8 +67,7 @@ const timeToMinutes = (time: string): number => {
 export function isSlotOccupied(
   date: Date,
   time: string,
-  occupiedSlots: OccupiedSlot[],
-  cleaningBuffer: number = 30
+  occupiedSlots: OccupiedSlot[]
 ): boolean {
   if (!date || !time) return false;
 
@@ -77,8 +76,8 @@ export function isSlotOccupied(
 
   for (const slot of occupiedSlots) {
     if (slot.date === dateKey) {
-      const startInMinutes = timeToMinutes(slot.startTime) - cleaningBuffer;
-      const endInMinutes = timeToMinutes(slot.endTime) + cleaningBuffer;
+      const startInMinutes = timeToMinutes(slot.startTime);
+      const endInMinutes = timeToMinutes(slot.endTime);
 
       if (timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes) {
         return true;
@@ -93,7 +92,6 @@ export function isRangeAvailable(
   start: string,
   end: string,
   occupiedSlots: OccupiedSlot[],
-  cleaningBuffer: number = 30,
   timeOptions: string[] = TIME_OPTIONS
 ): boolean {
   const startIdx = timeOptions.indexOf(start);
@@ -101,7 +99,7 @@ export function isRangeAvailable(
   if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
 
   for (let i = startIdx; i < endIdx; i++) {
-    if (isSlotOccupied(date, timeOptions[i], occupiedSlots, cleaningBuffer)) return false;
+    if (isSlotOccupied(date, timeOptions[i], occupiedSlots)) return false;
   }
   return true;
 }
@@ -304,12 +302,12 @@ export function BookingCalendar({
       const slotsForDate = occupiedSlots.filter(s => s.date === dateKey);
       const [year, month, day] = dateKey.split('-').map(Number);
       const d = new Date(year, month - 1, day);
-      if (allSlots.every(t => isSlotOccupied(d, t, slotsForDate, systemSettings.cleaning_buffer))) {
+      if (allSlots.every(t => isSlotOccupied(d, t, slotsForDate))) {
         set.add(dateKey);
       }
     }
     return set;
-  }, [occupiedSlots, dynamicTimeOptions, systemSettings.cleaning_buffer]);
+  }, [occupiedSlots, dynamicTimeOptions]);
 
   const isDateFullyBooked = useCallback((date: Date) => {
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -724,7 +722,7 @@ export function BookingCalendar({
                   const isLast = itemIdx === group.items.length - 1
 
                   const itemStartOptions = isCurrentRoom ? dynamicTimeOptions.slice(0, -1).map(time => {
-                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots, systemSettings.cleaning_buffer);
+                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
                     return { time, disabled: !!occupied };
                   }) : [];
 
@@ -734,7 +732,7 @@ export function BookingCalendar({
                     const options = [];
                     for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
                       const time = dynamicTimeOptions[i];
-                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, dynamicTimeOptions[i - 1], occupiedSlots, systemSettings.cleaning_buffer);
+                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, dynamicTimeOptions[i - 1], occupiedSlots);
                       options.push({ time, disabled: !!isOccupied });
                     }
                     return options;

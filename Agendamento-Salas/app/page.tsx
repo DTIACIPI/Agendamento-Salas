@@ -495,7 +495,7 @@ export default function Home() {
             }
           }
 
-          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots, systemSettings.cleaning_buffer, dynamicTimeOptions)) {
+          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots, dynamicTimeOptions)) {
             hasConflict = true
           }
 
@@ -607,7 +607,7 @@ export default function Home() {
         const dateStr = item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : null;
         const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
         
-        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots, systemSettings.cleaning_buffer, dynamicTimeOptions));
+        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots, dynamicTimeOptions));
 
         const priceData = calculateRoomPrice(selectedRoom, item.selectedRange.from, start, end, isAssociado ? associadoMonths : 0, item.selectedRange.from && item.selectedRange.to ? { from: item.selectedRange.from, to: item.selectedRange.to } : undefined, systemSettings);
 

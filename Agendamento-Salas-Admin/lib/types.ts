@@ -112,6 +112,7 @@ export interface Room {
   min_hours_weekend?: number
   price_per_hour_weekday?: number
   price_per_hour_weekend?: number
+  cleaning_buffer?: number
   status?: string
 }
 
@@ -130,6 +131,7 @@ export interface RoomDetail {
   min_hours_weekend: number
   price_per_hour_weekday: number
   price_per_hour_weekend: number
+  cleaning_buffer?: number
   status: string
   pricePeriodsWeekday?: PricePeriod[]
   pricePeriodsSaturday?: PricePeriod[]
@@ -144,21 +146,36 @@ export interface RoomPayload {
   min_hours_weekend: number
   price_per_hour_weekday: number
   price_per_hour_weekend: number
+  cleaning_buffer: number
   status: string
   images: string[]
 }
 
-export interface Client {
+// Empresa vinda de /api/companies
+export interface Company {
+  id: string
   cnpj: string
-  name: string
-  plano: string
-  lucro: string
-  email: string
-  phone: string
-  totalBookings: number
-  totalSpent: string
-  associado: boolean
-  meses: number
+  razao_social: string
+  inscricao_estadual: string | null
+  cep: string | null
+  endereco: string | null
+}
+
+// Paginação retornada pela API de companies
+export interface CompanyPagination {
+  total_records: number
+  current_page: number
+  total_pages: number
+}
+
+// Reserva no histórico de uma empresa
+export interface CompanyBooking {
+  id: string
+  event_name: string
+  status: BookingStatus | string
+  total_amount: number | string
+  payment_method: string | null
+  event_date: string | null
 }
 
 // Cupom vindo de /api/coupons
@@ -191,12 +208,24 @@ export interface Contract {
   status: "Enviado para Assinatura" | "Assinado" | "Aguardando Assinatura"
 }
 
-export type TabId = "dashboard" | "reservas" | "agenda" | "salas" | "cupons" | "contratos" | "clientes" | "config"
+// Evento da Agenda Central (GET /api/agenda)
+export interface AgendaEvent {
+  id: string
+  space_id: string
+  space_name: string
+  event_name: string
+  company_name: string
+  status: string
+  date: string       // YYYY-MM-DD
+  start_time: string // HH:mm
+  end_time: string   // HH:mm
+}
+
+export type TabId = "dashboard" | "reservas" | "agenda" | "salas" | "cupons" | "contratos" | "empresas" | "config"
 
 export interface SystemSettings {
   open_time: string
   close_time: string
-  cleaning_buffer: number
   block_sundays: boolean
   discount_tier1_pct: number
   discount_tier2_pct: number

@@ -98,16 +98,6 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
                 className="w-full p-2 border border-slate-300 rounded-md bg-slate-50"
               />
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1">Buffer de Limpeza (minutos)</label>
-              <input
-                type="number"
-                min={0}
-                value={draft.cleaning_buffer}
-                onChange={(e) => updateField("cleaning_buffer", Number(e.target.value) || 0)}
-                className="w-full p-2 border border-slate-300 rounded-md bg-slate-50"
-              />
-            </div>
             <div className="flex items-center justify-between col-span-2 border p-4 rounded-lg bg-slate-50 mt-2">
               <div>
                 <p className="font-bold text-slate-800 text-sm">Bloquear Domingos</p>

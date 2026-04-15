@@ -19,7 +19,7 @@ const navItems: NavItem[] = [
   { id: "salas", label: "Salas", icon: DoorOpen },
   { id: "cupons", label: "Cupons", icon: Ticket },
   { id: "contratos", label: "Contratos", icon: FileSignature },
-  { id: "clientes", label: "Clientes", icon: Users },
+  { id: "empresas", label: "Empresas", icon: Users },
   { id: "config", label: "Configuracoes", icon: Settings },
 ]
 
