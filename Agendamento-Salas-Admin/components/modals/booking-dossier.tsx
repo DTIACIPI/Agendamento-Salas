@@ -7,6 +7,7 @@ import {
 import { toast } from "sonner"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { API_BASE_URL } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import type { BookingDetail } from "@/lib/types"
 
 const DETAIL_BASE = `${API_BASE_URL}/webhook/details-booking-webhook/api/bookings`
@@ -17,9 +18,10 @@ interface BookingDossierProps {
   onClose: () => void
   onStatusChanged: () => void
   onBack?: () => void
+  isSuperAdmin?: boolean
 }
 
-export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: BookingDossierProps) {
+export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, isSuperAdmin = false }: BookingDossierProps) {
   const [booking, setBooking] = useState<BookingDetail | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [statusAction, setStatusAction] = useState<"approve" | "reject" | null>(null)
@@ -32,7 +34,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
   const fetchBookingDetail = useCallback(async (id: string, signal?: AbortSignal) => {
     setIsLoading(true)
     try {
-      const res = await fetch(`${DETAIL_BASE}/${id}`, {
+      const res = await authFetch(`${DETAIL_BASE}/${id}`, {
         cache: "no-store",
         signal,
       })
@@ -85,7 +87,13 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
     if (!draft || !bookingId) return
     setIsSaving(true)
     try {
-      const res = await fetch(`${EDIT_BASE}/${bookingId}`, {
+      // Field-level security: Admin nao pode alterar total_amount.
+      // Mesmo que o input fosse adulterado, mantemos o valor original do booking.
+      const valorTotal = isSuperAdmin
+        ? parseFloat(draft.total_amount.replace(",", ".")) || 0
+        : parseFloat((booking?.total_amount ?? "0").replace(",", ".")) || 0
+
+      const res = await authFetch(`${EDIT_BASE}/${bookingId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -108,7 +116,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
             responsavelDia: draft.onsite_contact_name || "",
             contatoDia: (draft.onsite_contact_phone || "").replace(/\D/g, ""),
             pagamento: draft.payment_method || "",
-            valorTotal: parseFloat(draft.total_amount.replace(",", ".")) || 0,
+            valorTotal,
             status: draft.status,
           },
         }),
@@ -116,7 +124,10 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
       if (!res.ok) throw new Error("Falha ao salvar alteracoes")
       toast.success("Reserva atualizada com sucesso!")
       // Salva de volta no formato da API (ponto decimal) para exibição correta
-      setBooking({ ...draft, total_amount: draft.total_amount.replace(",", ".") })
+      const finalAmount = isSuperAdmin
+        ? draft.total_amount.replace(",", ".")
+        : booking?.total_amount ?? draft.total_amount.replace(",", ".")
+      setBooking({ ...draft, total_amount: finalAmount })
       setIsEditing(false)
       setDraft(null)
       onStatusChanged()
@@ -133,7 +144,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
     const action = newStatus === "Confirmada" ? "approve" : "reject"
     setStatusAction(action)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/31a49c3a-2924-4bd3-85b9-e51b34e6fd39/api/bookings/${bookingId}/status`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/31a49c3a-2924-4bd3-85b9-e51b34e6fd39/api/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -245,7 +256,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack }: 
                 </div>
                 <div className="text-right">
                   <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
-                  {isEditing ? (
+                  {isEditing && isSuperAdmin ? (
                     <div className="flex items-center gap-1 justify-end">
                       <span className="text-lg font-black text-[#184689]">R$</span>
                       <input

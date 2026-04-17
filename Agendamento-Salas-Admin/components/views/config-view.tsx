@@ -5,14 +5,16 @@ import { Clock, Ticket, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import type { SystemSettings } from "@/lib/types"
 import { cn, API_BASE_URL } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 
 interface ConfigViewProps {
   systemSettings: SystemSettings
   isSettingsLoading: boolean
-  onSettingsChange: (settings: SystemSettings) => void
+  onSettingsChange?: (settings: SystemSettings) => void
 }
 
 export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange }: ConfigViewProps) {
+  const canEdit = typeof onSettingsChange === "function"
   const [draft, setDraft] = useState<SystemSettings>(systemSettings)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -28,13 +30,13 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/api/settings`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/api/settings`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
       })
       if (!res.ok) throw new Error("Falha ao salvar configuracoes")
-      onSettingsChange(draft)
+      onSettingsChange?.(draft)
       toast.success("Configuracoes salvas com sucesso!")
     } catch (error) {
       console.error("Erro ao salvar configuracoes:", error)
@@ -84,18 +86,20 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
               <label className="block text-sm font-semibold text-slate-700 mb-1">Horario de Abertura</label>
               <input
                 type="time"
+                disabled={!canEdit}
                 value={draft.open_time}
                 onChange={(e) => updateField("open_time", e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded-md bg-slate-50"
+                className="w-full p-2 border border-slate-300 rounded-md bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1">Horario de Fechamento</label>
               <input
                 type="time"
+                disabled={!canEdit}
                 value={draft.close_time}
                 onChange={(e) => updateField("close_time", e.target.value)}
-                className="w-full p-2 border border-slate-300 rounded-md bg-slate-50"
+                className="w-full p-2 border border-slate-300 rounded-md bg-slate-50 disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
               />
             </div>
             <div className="flex items-center justify-between col-span-2 border p-4 rounded-lg bg-slate-50 mt-2">
@@ -105,11 +109,13 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
               </div>
               <button
                 type="button"
-                onClick={() => updateField("block_sundays", !draft.block_sundays)}
+                onClick={() => canEdit && updateField("block_sundays", !draft.block_sundays)}
+                disabled={!canEdit}
                 aria-pressed={draft.block_sundays}
                 className={cn(
-                  "w-10 h-6 rounded-full relative cursor-pointer transition-colors",
-                  draft.block_sundays ? "bg-emerald-500" : "bg-slate-300"
+                  "w-10 h-6 rounded-full relative transition-colors",
+                  draft.block_sundays ? "bg-emerald-500" : "bg-slate-300",
+                  canEdit ? "cursor-pointer" : "cursor-not-allowed opacity-60"
                 )}
               >
                 <div
@@ -146,9 +152,10 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
                       type="number"
                       min={0}
                       max={100}
+                      disabled={!canEdit}
                       value={draft.discount_tier1_pct}
                       onChange={(e) => updateField("discount_tier1_pct", Number(e.target.value) || 0)}
-                      className="border p-1 w-20 rounded"
+                      className="border p-1 w-20 rounded disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                     <span className="text-slate-500">%</span>
                   </div>
@@ -163,9 +170,10 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
                       type="number"
                       min={0}
                       max={100}
+                      disabled={!canEdit}
                       value={draft.discount_tier2_pct}
                       onChange={(e) => updateField("discount_tier2_pct", Number(e.target.value) || 0)}
-                      className="border p-1 w-20 rounded"
+                      className="border p-1 w-20 rounded disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                     <span className="text-slate-500">%</span>
                   </div>
@@ -180,9 +188,10 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
                       type="number"
                       min={0}
                       max={100}
+                      disabled={!canEdit}
                       value={draft.discount_tier3_pct}
                       onChange={(e) => updateField("discount_tier3_pct", Number(e.target.value) || 0)}
-                      className="border p-1 w-20 rounded"
+                      className="border p-1 w-20 rounded disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                     />
                     <span className="text-slate-500">%</span>
                   </div>
@@ -192,17 +201,19 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
           </table>
         </div>
 
-        <div className="flex justify-end pt-4">
-          <button
-            type="button"
-            onClick={handleSave}
-            disabled={isSaving}
-            className="bg-[#184689] text-white px-6 py-2 rounded-lg font-medium hover:bg-[#123566] transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-            {isSaving ? "Salvando..." : "Salvar Configuracoes"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex justify-end pt-4">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={isSaving}
+              className="bg-[#184689] text-white px-6 py-2 rounded-lg font-medium hover:bg-[#123566] transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              {isSaving ? "Salvando..." : "Salvar Configuracoes"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { X, Save, Plus, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { API_BASE_URL } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import type { Coupon, CouponPayload } from "@/lib/types"
 
 interface CouponModalProps {
@@ -60,7 +61,7 @@ export function CouponModal({ open, editingCoupon, onClose, onSaved }: CouponMod
         : `${API_BASE_URL}/webhook/api/coupons`
       const method = editingCoupon ? "PATCH" : "POST"
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),

@@ -2,7 +2,7 @@
 
 import {
   LayoutDashboard, CalendarRange, DoorOpen, Ticket,
-  FileSignature, Users, Settings, Calendar as CalIcon,
+  FileSignature, Users, Settings, Calendar as CalIcon, ShieldCheck,
 } from "lucide-react"
 import type { TabId } from "@/lib/types"
 
@@ -10,6 +10,7 @@ interface NavItem {
   id: TabId
   label: string
   icon: React.ComponentType<{ className?: string }>
+  superAdminOnly?: boolean
 }
 
 const navItems: NavItem[] = [
@@ -20,6 +21,7 @@ const navItems: NavItem[] = [
   { id: "cupons", label: "Cupons", icon: Ticket },
   { id: "contratos", label: "Contratos", icon: FileSignature },
   { id: "empresas", label: "Empresas", icon: Users },
+  { id: "usuarios", label: "Usuarios", icon: ShieldCheck, superAdminOnly: true },
   { id: "config", label: "Configuracoes", icon: Settings },
 ]
 
@@ -28,9 +30,11 @@ interface SidebarProps {
   onTabChange: (tab: TabId) => void
   isMobileOpen: boolean
   onMobileClose: () => void
+  isSuperAdmin?: boolean
 }
 
-export function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose }: SidebarProps) {
+export function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose, isSuperAdmin = false }: SidebarProps) {
+  const visibleItems = navItems.filter((item) => !item.superAdminOnly || isSuperAdmin)
   return (
     <>
       {/* Overlay mobile */}
@@ -56,7 +60,7 @@ export function Sidebar({ activeTab, onTabChange, isMobileOpen, onMobileClose }:
 
         {/* Nav */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto custom-scrollbar">
-          {navItems.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.id}
               onClick={() => {

@@ -7,6 +7,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { API_BASE_URL } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import { ALL_AMENITIES } from "@/lib/mock-data"
 import { uploadImageToSupabase } from "@/lib/upload"
 import type { Room, RoomDetail, RoomPayload } from "@/lib/types"
@@ -16,6 +17,7 @@ interface RoomModalProps {
   editingRoom: Room | null
   onClose: () => void
   onSaved: () => void
+  isSuperAdmin?: boolean
 }
 
 // Representa uma imagem no formulário: URL existente ou File novo
@@ -25,7 +27,7 @@ interface ImageEntry {
   file?: File       // Só existe quando type === "file"
 }
 
-export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProps) {
+export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = false }: RoomModalProps) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -67,7 +69,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
   const fetchDetail = useCallback(async (id: string, signal?: AbortSignal) => {
     setIsLoadingDetail(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${id}`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${id}`, {
         cache: "no-store",
         signal,
       })
@@ -228,7 +230,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
         : `${API_BASE_URL}/webhook/api/spaces`
       const method = editingRoom ? "PATCH" : "POST"
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -452,9 +454,10 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
                           type="number"
                           step="0.01"
                           required
+                          disabled={!isSuperAdmin}
                           value={weekdayPrice}
                           onChange={(e) => setWeekdayPrice(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                           placeholder="Ex: 150.00"
                         />
                       </div>
@@ -481,9 +484,10 @@ export function RoomModal({ open, editingRoom, onClose, onSaved }: RoomModalProp
                           type="number"
                           step="0.01"
                           required
+                          disabled={!isSuperAdmin}
                           value={saturdayPrice}
                           onChange={(e) => setSaturdayPrice(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
+                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
                           placeholder="Ex: 200.00"
                         />
                       </div>

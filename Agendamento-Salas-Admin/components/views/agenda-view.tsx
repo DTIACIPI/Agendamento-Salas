@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
 import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react"
 import { API_BASE_URL } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import type { Room, SystemSettings, AgendaEvent } from "@/lib/types"
 
 type ViewMode = "day" | "week" | "month"
@@ -99,7 +100,7 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
   const fetchEvents = useCallback(async (from: string, to: string) => {
     setIsLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/api/agenda?date_from=${from}&date_to=${to}`, { cache: "no-store" })
+      const res = await authFetch(`${API_BASE_URL}/webhook/api/agenda?date_from=${from}&date_to=${to}`, { cache: "no-store" })
       if (!res.ok) throw new Error("Falha ao buscar agenda")
       const text = await res.text()
       if (!text) { setEvents([]); return }

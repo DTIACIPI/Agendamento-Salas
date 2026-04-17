@@ -221,7 +221,35 @@ export interface AgendaEvent {
   end_time: string   // HH:mm
 }
 
-export type TabId = "dashboard" | "reservas" | "agenda" | "salas" | "cupons" | "contratos" | "empresas" | "config"
+export type TabId = "dashboard" | "reservas" | "agenda" | "salas" | "cupons" | "contratos" | "empresas" | "usuarios" | "config"
+
+// Usuario do sistema (rota /api/users)
+export type UserStatus = "active" | "inactive"
+
+export interface User {
+  id: string
+  name: string
+  email: string
+  role: "Super Admin" | "Admin"
+  is_active: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+// Payload para POST /api/users
+export interface UserCreatePayload {
+  name: string
+  email: string
+  role: "Super Admin" | "Admin"
+  is_active: boolean
+}
+
+// Payload para PATCH /api/users/:id (email nao editavel)
+export interface UserUpdatePayload {
+  name: string
+  role: "Super Admin" | "Admin"
+  is_active: boolean
+}
 
 export interface SystemSettings {
   open_time: string

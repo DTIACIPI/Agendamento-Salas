@@ -3,18 +3,20 @@
 import { useState } from "react"
 import { Plus, Edit, Ticket, Trash2, Loader2 } from "lucide-react"
 import { toast } from "sonner"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import { API_BASE_URL } from "@/lib/utils"
 import type { Coupon } from "@/lib/types"
 
 interface CuponsViewProps {
   coupons: Coupon[]
   isLoading: boolean
-  onOpenCouponModal: (coupon: Coupon | null) => void
-  onDeleteCoupon: (id: string) => Promise<void>
+  onOpenCouponModal?: (coupon: Coupon | null) => void
+  onDeleteCoupon?: (id: string) => Promise<void>
+  canToggle?: boolean
   onRefresh: () => void
 }
 
-export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoupon, onRefresh }: CuponsViewProps) {
+export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoupon, canToggle = false, onRefresh }: CuponsViewProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -22,7 +24,7 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
   const handleToggle = async (coupon: Coupon) => {
     setTogglingId(coupon.id)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/4506df66-209d-443d-bc88-1e3aac67ea49/api/coupons/${coupon.id}`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/4506df66-209d-443d-bc88-1e3aac67ea49/api/coupons/${coupon.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: !coupon.is_active }),
@@ -40,7 +42,7 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
   const handleDelete = async (id: string) => {
     setDeletingId(id)
     try {
-      await onDeleteCoupon(id)
+      await onDeleteCoupon?.(id)
       toast.success("Cupom excluido com sucesso!")
     } catch {
       toast.error("Erro ao excluir cupom")
@@ -57,12 +59,14 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
           <h1 className="text-2xl font-bold text-slate-800">Cupons de Desconto</h1>
           <p className="text-slate-500 text-sm mt-1">Crie e edite campanhas promocionais ativas.</p>
         </div>
-        <button
-          onClick={() => onOpenCouponModal(null)}
-          className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#113262] shadow-sm"
-        >
-          <Plus className="w-4 h-4" /> Novo Cupom
-        </button>
+        {onOpenCouponModal && (
+          <button
+            onClick={() => onOpenCouponModal(null)}
+            className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#113262] shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> Novo Cupom
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -116,15 +120,17 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex items-center justify-end gap-2">
-                      <button
-                        onClick={() => onOpenCouponModal(coupon)}
-                        className="p-1.5 text-slate-400 hover:text-[#184689] hover:bg-[#184689]/10 rounded transition-colors"
-                        title="Editar Cupom"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
+                      {onOpenCouponModal && (
+                        <button
+                          onClick={() => onOpenCouponModal(coupon)}
+                          className="p-1.5 text-slate-400 hover:text-[#184689] hover:bg-[#184689]/10 rounded transition-colors"
+                          title="Editar Cupom"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                      )}
 
-                      {confirmDeleteId === coupon.id ? (
+                      {onDeleteCoupon && (confirmDeleteId === coupon.id ? (
                         <div className="flex gap-1">
                           <button
                             onClick={() => handleDelete(coupon.id)}
@@ -152,15 +158,15 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
-                      )}
+                      ))}
 
                       <button
-                        onClick={() => handleToggle(coupon)}
-                        disabled={togglingId === coupon.id}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
+                        onClick={() => canToggle && handleToggle(coupon)}
+                        disabled={!canToggle || togglingId === coupon.id}
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:cursor-not-allowed ${
                           coupon.is_active ? "bg-emerald-500" : "bg-slate-300"
-                        }`}
-                        title={coupon.is_active ? "Desativar Cupom" : "Ativar Cupom"}
+                        } ${!canToggle ? "opacity-60" : "disabled:opacity-50"}`}
+                        title={coupon.is_active ? "Ativo" : "Inativo"}
                       >
                         {togglingId === coupon.id ? (
                           <Loader2 className="w-3 h-3 animate-spin text-white mx-auto" />

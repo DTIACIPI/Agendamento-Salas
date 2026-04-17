@@ -9,8 +9,8 @@ import { formatCurrency } from "@/lib/utils"
 interface SalasViewProps {
   rooms: Room[]
   isLoading: boolean
-  onOpenRoomModal: (room: Room | null) => void
-  onDeleteRoom: (roomId: string) => Promise<void>
+  onOpenRoomModal?: (room: Room | null) => void
+  onDeleteRoom?: (roomId: string) => Promise<void>
 }
 
 function getBasePrice(periods: Room["pricePeriodsWeekday"]): number | null {
@@ -25,7 +25,7 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: S
   const handleDelete = async (roomId: string) => {
     setDeletingId(roomId)
     try {
-      await onDeleteRoom(roomId)
+      await onDeleteRoom?.(roomId)
       toast.success("Sala excluida com sucesso!")
     } catch {
       toast.error("Erro ao excluir sala")
@@ -42,12 +42,14 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: S
           <h1 className="text-2xl font-bold text-slate-800">Gestao de Espacos</h1>
           <p className="text-slate-500 text-sm">Controle as regras, precos e infraestrutura das salas.</p>
         </div>
-        <button
-          onClick={() => onOpenRoomModal(null)}
-          className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#113262] font-medium"
-        >
-          <Plus className="w-4 h-4" /> Adicionar Sala
-        </button>
+        {onOpenRoomModal && (
+          <button
+            onClick={() => onOpenRoomModal(null)}
+            className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#113262] font-medium"
+          >
+            <Plus className="w-4 h-4" /> Adicionar Sala
+          </button>
+        )}
       </div>
 
       {isLoading ? (
@@ -125,44 +127,48 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: S
                     </div>
                   </div>
 
-                  <div className="mt-4 flex gap-2">
-                    <button
-                      onClick={() => onOpenRoomModal(room)}
-                      className="flex-1 flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-[#184689] border border-slate-200 py-2 rounded-lg text-sm font-medium transition-colors"
-                    >
-                      <Edit className="w-4 h-4" /> Editar
-                    </button>
+                  {(onOpenRoomModal || onDeleteRoom) && (
+                    <div className="mt-4 flex gap-2">
+                      {onOpenRoomModal && (
+                        <button
+                          onClick={() => onOpenRoomModal(room)}
+                          className="flex-1 flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 text-[#184689] border border-slate-200 py-2 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          <Edit className="w-4 h-4" /> Editar
+                        </button>
+                      )}
 
-                    {confirmDeleteId === room.id ? (
-                      <div className="flex gap-1">
+                      {onDeleteRoom && (confirmDeleteId === room.id ? (
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => handleDelete(room.id)}
+                            disabled={deletingId === room.id}
+                            className="flex items-center gap-1 px-3 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+                          >
+                            {deletingId === room.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              "Confirmar"
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="px-3 py-2 bg-slate-100 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
+                          >
+                            Nao
+                          </button>
+                        </div>
+                      ) : (
                         <button
-                          onClick={() => handleDelete(room.id)}
-                          disabled={deletingId === room.id}
-                          className="flex items-center gap-1 px-3 py-2 bg-red-500 text-white text-sm font-medium rounded-lg hover:bg-red-600 transition-colors disabled:opacity-50"
+                          onClick={() => setConfirmDeleteId(room.id)}
+                          className="flex items-center justify-center px-3 py-2 bg-slate-50 hover:bg-red-50 text-red-500 border border-slate-200 hover:border-red-200 rounded-lg text-sm font-medium transition-colors"
+                          title="Excluir sala"
                         >
-                          {deletingId === room.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            "Confirmar"
-                          )}
+                          <Trash2 className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          className="px-3 py-2 bg-slate-100 text-slate-600 text-sm font-medium rounded-lg hover:bg-slate-200 transition-colors"
-                        >
-                          Nao
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmDeleteId(room.id)}
-                        className="flex items-center justify-center px-3 py-2 bg-slate-50 hover:bg-red-50 text-red-500 border border-slate-200 hover:border-red-200 rounded-lg text-sm font-medium transition-colors"
-                        title="Excluir sala"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )

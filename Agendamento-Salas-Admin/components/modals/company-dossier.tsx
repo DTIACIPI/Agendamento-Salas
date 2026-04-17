@@ -7,6 +7,7 @@ import {
 import { toast } from "sonner"
 import { StatusBadge } from "@/components/shared/status-badge"
 import { API_BASE_URL, formatCurrency } from "@/lib/utils"
+import { authFetch } from "@/lib/auth/auth-fetch"
 import type { Company, CompanyBooking } from "@/lib/types"
 
 interface CompanyDossierProps {
@@ -59,7 +60,7 @@ export function CompanyDossier({ companyId, companies, onClose, onCompanyUpdated
   const fetchBookings = useCallback(async (id: string, signal?: AbortSignal) => {
     setIsBookingsLoading(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/523d40e7-a7e8-476e-9ee1-2a0ecffe2738/api/companies/${id}/bookings`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/523d40e7-a7e8-476e-9ee1-2a0ecffe2738/api/companies/${id}/bookings`, {
         cache: "no-store",
         signal,
       })
@@ -107,7 +108,7 @@ export function CompanyDossier({ companyId, companies, onClose, onCompanyUpdated
     if (!companyId) return
     setIsSaving(true)
     try {
-      const res = await fetch(`${API_BASE_URL}/webhook/b40fd427-347c-42bf-a144-12010a448bb3/api/companies/${companyId}`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/b40fd427-347c-42bf-a144-12010a448bb3/api/companies/${companyId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
