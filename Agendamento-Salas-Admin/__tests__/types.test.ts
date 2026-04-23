@@ -132,9 +132,11 @@ describe('NewBookingPayload interface', () => {
         total_amount: 3700,
         onsite_contact_name: 'Joao',
         onsite_contact_phone: '19999999999',
+        payment_method: 'Boleto',
+        cleaning_buffer: 0,
       },
-      company: { cnpj: '11222333000181', razao_social: 'Empresa Teste' },
-      user: { name: 'Joao', email: 'joao@teste.com', phone: '19999999999' },
+      company: { cnpj: '11222333000181', razao_social: 'Empresa Teste', inscricao_estadual: '', cep: '13560000', endereco: 'Rua Teste 100, Centro' },
+      user: { name: 'Joao', email: 'joao@teste.com', phone: '19999999999', role: 'Admin' },
     }
     expect(payload.company).not.toBeNull()
     expect(payload.booking.booking_type).toBe('Locação Cliente')
@@ -154,9 +156,11 @@ describe('NewBookingPayload interface', () => {
         total_amount: 0,
         onsite_contact_name: 'Maria',
         onsite_contact_phone: '',
+        payment_method: 'Isento',
+        cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Maria', email: 'maria@prefeitura.gov.br', phone: '' },
+      user: { name: 'Maria', email: 'maria@prefeitura.gov.br', phone: '', role: 'Admin' },
     }
     expect(payload.company).toBeNull()
     expect(payload.booking.total_amount).toBe(0)

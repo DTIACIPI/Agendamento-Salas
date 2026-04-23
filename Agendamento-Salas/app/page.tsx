@@ -156,9 +156,11 @@ export default function Home() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/webhook/api/public/settings`, { cache: 'no-store' })
+        const res = await fetch(`${API_BASE_URL}/webhook/api/settings`, { cache: 'no-store' })
         if (!res.ok) throw new Error("Falha ao buscar configurações")
-        const data = await res.json()
+        const text = await res.text()
+        if (!text.trim()) return
+        const data = JSON.parse(text)
         if (data.success && data.settings) {
           setSystemSettings(data.settings)
         }
@@ -268,7 +270,7 @@ export default function Home() {
 
       setAvailabilityLoading(true);
       try {
-        const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
+        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
         
         const res = await fetch(apiUrl, { cache: 'no-store' });
         if (!res.ok) throw new Error("Falha ao buscar viabilidade do período");
@@ -468,7 +470,7 @@ export default function Home() {
         setAvailabilityLoading(true)
         try {
           const dateStr = formatDateToISO(date)
-          const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
+          const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
           
           const res = await fetch(apiUrl, { cache: 'no-store' })
           if (!res.ok) throw new Error("API fetch failed")
@@ -559,7 +561,7 @@ export default function Home() {
       const fetchPromises = roomBookingsToUpdate.map(item => {
         if (!item.selectedRange.from) return Promise.resolve({ raw: [], date: null as string | null });
         const dateStr = formatDateToISO(item.selectedRange.from);
-        const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
+        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
 
         return fetch(apiUrl, { cache: 'no-store' })
           .then(async res => {

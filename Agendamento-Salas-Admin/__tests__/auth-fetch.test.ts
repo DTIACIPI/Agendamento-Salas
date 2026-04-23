@@ -94,12 +94,12 @@ describe('authFetch', () => {
 
     await authFetch(`${API_BASE_URL}/webhook/api/bookings`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
     })
 
     const [, init] = getLastCallInit()
     const headers = init.headers as Headers
-    expect(headers.get('Content-Type')).toBe('application/json')
+    expect(headers.get('Content-Type')).toBe('application/json; charset=utf-8')
     expect(headers.get('Authorization')).toBe('Bearer test-token-123')
   })
 
@@ -121,7 +121,7 @@ describe('authFetch', () => {
 
     await authFetch(`${API_BASE_URL}/webhook/api/bookings/123/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body,
     })
 

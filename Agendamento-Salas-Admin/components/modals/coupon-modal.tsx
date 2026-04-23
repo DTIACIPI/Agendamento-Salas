@@ -54,6 +54,7 @@ export function CouponModal({ open, editingCoupon, onClose, onSaved }: CouponMod
         max_uses: maxUses.trim() === "" ? null : Number(maxUses),
         valid_until: validUntil.trim() === "" ? null : validUntil,
         is_active: isActive,
+        description: "",
       }
 
       const url = editingCoupon
@@ -63,7 +64,7 @@ export function CouponModal({ open, editingCoupon, onClose, onSaved }: CouponMod
 
       const res = await authFetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       })
 

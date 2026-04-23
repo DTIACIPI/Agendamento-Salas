@@ -33,7 +33,9 @@ const STATUS_OPTIONS: { label: string; value: BookingStatus | "all" }[] = [
 
 function formatEventDate(raw: string | null): string {
   if (!raw) return "—"
-  const d = new Date(raw.includes(" ") ? raw.replace(" ", "T") : raw)
+  let iso = raw.includes(" ") ? raw.replace(" ", "T") : raw
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) iso += "T12:00:00"
+  const d = new Date(iso)
   if (isNaN(d.getTime())) return raw
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }

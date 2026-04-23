@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import type { BookingType, NewBookingPayload, Room } from '@/lib/types'
 
-const EXEMPT_TYPES: BookingType[] = ['Cessão', 'Uso Interno']
+const EXEMPT_TYPES: BookingType[] = ['Cessão', 'Uso Interno', 'Curso']
 
 function isExempt(type: BookingType): boolean {
   return EXEMPT_TYPES.includes(type)
@@ -86,15 +86,21 @@ function buildPayload(opts: {
       total_amount: parsedAmount,
       onsite_contact_name: opts.contactName.trim(),
       onsite_contact_phone: opts.contactPhone.replace(/\D/g, ''),
+      payment_method: opts.isExempt ? 'Isento' : 'Boleto',
+      cleaning_buffer: 0,
     },
     company: opts.isExempt ? null : {
       cnpj: opts.cnpj.replace(/\D/g, ''),
       razao_social: opts.razaoSocial.trim(),
+      inscricao_estadual: '',
+      cep: '',
+      endereco: '',
     },
     user: {
       name: opts.contactName.trim(),
       email: opts.contactEmail.trim(),
       phone: opts.contactPhone.replace(/\D/g, ''),
+      role: 'Admin',
     },
   }
 }

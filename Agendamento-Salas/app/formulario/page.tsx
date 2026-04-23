@@ -401,12 +401,13 @@ function FormularioContent() {
           total_amount: finalAmount,
           coupon_code: appliedCoupon?.code || null,
           coupon_discount: itemCouponDiscount > 0 ? itemCouponDiscount : null,
+          cleaning_buffer: 0,
         },
       }
 
       return fetch(`${API_BASE_URL}/webhook/api/public/bookings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       })
     })
@@ -634,7 +635,7 @@ function FormularioContent() {
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-5">Dados Cadastrais</h3>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Razão social</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Razão social <span className="text-red-500">*</span></label>
                 <input name="razaoSocial" value={formData.razaoSocial} onChange={handleChange} readOnly={isLocked("razaoSocial")} type="text" placeholder="Nome da empresa" className={inputClass("razaoSocial")} />
                 {hasError("razaoSocial") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
@@ -651,17 +652,17 @@ function FormularioContent() {
                 <input name="inscricaoEstadual" value={formData.inscricaoEstadual} onChange={handleChange} readOnly={isLocked("inscricaoEstadual")} type="text" placeholder="Isento" className={inputClass("inscricaoEstadual")} />
               </div>
               <div className="md:col-span-4">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">CEP</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">CEP <span className="text-red-500">*</span></label>
                 <input name="cep" value={formData.cep} onChange={handleChange} readOnly={isLocked("cep")} type="text" inputMode="numeric" placeholder="00000-000" maxLength={9} className={inputClass("cep")} />
                 {hasError("cep") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-8">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Endereço</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Endereço <span className="text-red-500">*</span></label>
                 <input name="endereco" value={formData.endereco} onChange={handleChange} readOnly={isLocked("endereco")} type="text" placeholder="Rua, Avenida..." className={inputClass("endereco")} />
                 {hasError("endereco") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-3">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nº</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nº <span className="text-red-500">*</span></label>
                 <input name="numero" value={formData.numero} onChange={handleChange} readOnly={isLocked("numero")} type="text" placeholder="Nº" className={inputClass("numero")} />
                 {hasError("numero") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
@@ -670,12 +671,12 @@ function FormularioContent() {
                 <input name="complemento" value={formData.complemento} onChange={handleChange} readOnly={isLocked("complemento")} type="text" placeholder="Sala, Andar..." className={inputClass("complemento")} />
               </div>
               <div className="md:col-span-4">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Bairro</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Bairro <span className="text-red-500">*</span></label>
                 <input name="bairro" value={formData.bairro} onChange={handleChange} readOnly={isLocked("bairro")} type="text" placeholder="Bairro" className={inputClass("bairro")} />
                 {hasError("bairro") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-8">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cidade</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cidade <span className="text-red-500">*</span></label>
                 <input name="cidade" value={formData.cidade} onChange={handleChange} readOnly={isLocked("cidade")} type="text" placeholder="Cidade" className={inputClass("cidade")} />
                 {hasError("cidade") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
@@ -723,23 +724,23 @@ function FormularioContent() {
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-5">Dados do Responsável</h3>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
               <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome completo do responsável</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome completo do responsável <span className="text-red-500">*</span></label>
                 <input name="nomeResponsavel" value={formData.nomeResponsavel} onChange={handleChange} readOnly={isLocked("nomeResponsavel")} type="text" placeholder="Nome completo" className={inputClass("nomeResponsavel")} />
                 {hasError("nomeResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">E-mail do responsável</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">E-mail do responsável <span className="text-red-500">*</span></label>
                 <input name="emailResponsavel" value={formData.emailResponsavel} onChange={handleChange} readOnly={isLocked("emailResponsavel")} type="email" placeholder="email@exemplo.com" className={inputClass("emailResponsavel")} />
                 {hasError("emailResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                 {!hasError("emailResponsavel") && formData.emailResponsavel && !isValidEmail(formData.emailResponsavel) && <span className="text-xs text-amber-500 mt-1">E-mail inválido</span>}
               </div>
               <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Telefone do responsável</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Telefone do responsável <span className="text-red-500">*</span></label>
                 <input name="telefoneResponsavel" value={formData.telefoneResponsavel} onChange={handleChange} readOnly={isLocked("telefoneResponsavel")} type="tel" inputMode="numeric" placeholder="(00) 00000-0000" maxLength={15} className={inputClass("telefoneResponsavel")} />
                 {hasError("telefoneResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
               <div className="md:col-span-12">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cargo</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Cargo <span className="text-red-500">*</span></label>
                 <input name="cargoResponsavel" value={formData.cargoResponsavel} onChange={handleChange} type="text" placeholder="Ex: Diretor, Gerente..." className={inputClass("cargoResponsavel")} />
                 {hasError("cargoResponsavel") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
               </div>
@@ -820,12 +821,12 @@ function FormularioContent() {
 
                   {/* Campos editáveis */}
                   <div className="md:col-span-6">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento</label>
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento <span className="text-red-500">*</span></label>
                     <input type="text" value={ed.nomeEvento} onChange={(e) => handleEventChange(b.id, "nomeEvento", e.target.value)} placeholder="Ex: Workshop de Tecnologia" className={evInputClass("nomeEvento")} />
                     {hasEventError(b.id, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-6">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento</label>
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento <span className="text-red-500">*</span></label>
                     <input type="text" value={ed.finalidadeEvento} onChange={(e) => handleEventChange(b.id, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento, Reunião, Palestra..." className={evInputClass("finalidadeEvento")} />
                     {hasEventError(b.id, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
@@ -834,12 +835,12 @@ function FormularioContent() {
                     <input type="text" inputMode="numeric" value={ed.participantes} onChange={(e) => handleEventChange(b.id, "participantes", e.target.value)} placeholder="Ex: 50" className={evInputClass("participantes")} />
                   </div>
                   <div className="md:col-span-4">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia</label>
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia <span className="text-red-500">*</span></label>
                     <input type="text" value={ed.responsavelLocal} onChange={(e) => handleEventChange(b.id, "responsavelLocal", e.target.value)} placeholder="Nome de quem estará presente" className={evInputClass("responsavelLocal")} />
                     {hasEventError(b.id, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-5">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel</label>
+                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel <span className="text-red-500">*</span></label>
                     <input type="tel" inputMode="numeric" value={ed.contatoLocal} onChange={(e) => handleEventChange(b.id, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={evInputClass("contatoLocal")} />
                     {hasEventError(b.id, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
@@ -854,7 +855,7 @@ function FormularioContent() {
             {/* Pagamento — global, fora das abas */}
             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mt-4 pt-4 border-t border-slate-100">
               <div className="md:col-span-6">
-                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opcao de pagamento</label>
+                <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opcao de pagamento <span className="text-red-500">*</span></label>
                 <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className={inputClass("opcaoPagamento")}>
                   <option value="">Selecione...</option>
                   <option value="boleto">Boleto Bancário</option>

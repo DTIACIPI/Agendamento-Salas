@@ -390,7 +390,7 @@ function AdminDashboard() {
       const role_id = target?.role === "Super Admin" ? 1 : 2
       const res = await authFetch(`${API_BASE_URL}/webhook/4a72b69f-b638-4681-9823-28f5d855af58/api/users/${userId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({ name: target?.name ?? "", role_id, is_active: 1 }),
       })
       if (!res.ok) throw new Error("Falha ao ativar usuario")

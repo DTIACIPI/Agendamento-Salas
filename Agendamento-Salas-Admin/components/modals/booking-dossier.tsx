@@ -97,7 +97,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
 
       const res = await authFetch(`${EDIT_BASE}/${bookingId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
           responsavelData: {
             nome: draft.user_name,
@@ -123,7 +123,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
       if (draft.status !== booking?.status) {
         const statusRes = await authFetch(`${API_BASE_URL}/webhook/e8bca4a7-1d71-4adb-8c0f-ed0e96d1383b/api/bookings/${bookingId}/status`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({ status: draft.status }),
         })
         if (!statusRes.ok) throw new Error("Falha ao atualizar status")
@@ -152,7 +152,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
     try {
       const res = await authFetch(`${API_BASE_URL}/webhook/e8bca4a7-1d71-4adb-8c0f-ed0e96d1383b/api/bookings/${bookingId}/status`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) throw new Error("Falha ao atualizar status")
@@ -401,11 +401,11 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
           )}
         </div>
 
-        {/* Footer — sem ações para eventos internos */}
-        {current && !isLoading && !isEditing && !isInternal && (
+        {/* Footer */}
+        {current && !isLoading && !isEditing && (
           <div className="p-4 border-t border-slate-200 bg-white shrink-0">
             <div className="grid grid-cols-2 gap-3">
-              {status === "Pendente" || status === "Pre-reserva" ? (
+              {status === "Pre-reserva" ? (
                 <>
                   <button
                     disabled={statusAction !== null}
@@ -413,7 +413,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                     className="w-full py-2.5 bg-white border border-red-200 text-red-600 rounded-lg font-medium text-sm hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {statusAction === "reject" && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Rejeitar
+                    Cancelar Reserva
                   </button>
                   <button
                     disabled={statusAction !== null}
@@ -421,24 +421,25 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                     className="w-full py-2.5 bg-emerald-600 text-white rounded-lg font-medium text-sm hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {statusAction === "approve" && <Loader2 className="w-4 h-4 animate-spin" />}
-                    Aprovar Reserva
+                    Confirmar Reserva
                   </button>
                 </>
               ) : status === "Confirmada" ? (
                 <>
+                  <button
+                    disabled={statusAction !== null}
+                    onClick={() => handleStatusChange("Cancelada")}
+                    className="w-full py-2.5 bg-white border border-red-200 text-red-600 rounded-lg font-medium text-sm hover:bg-red-50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {statusAction === "reject" && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Cancelar Reserva
+                  </button>
                   <button
                     onClick={() => toast.info("Funcionalidade de contrato em breve!")}
                     className="w-full py-2.5 bg-[#184689] text-white rounded-lg font-medium text-sm hover:bg-[#12356b] transition-colors shadow-sm flex items-center justify-center gap-2"
                   >
                     <FileText className="w-4 h-4" />
                     Gerar Contrato
-                  </button>
-                  <button
-                    disabled={statusAction !== null}
-                    onClick={() => handleStatusChange("Concluída")}
-                    className="w-full py-2.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg font-medium text-sm hover:bg-sky-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-                  >
-                    Concluir
                   </button>
                 </>
               ) : (

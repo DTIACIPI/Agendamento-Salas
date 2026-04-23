@@ -221,6 +221,7 @@ export interface CouponPayload {
   max_uses: number | null
   valid_until: string | null
   is_active: boolean
+  description: string
 }
 
 export interface Contract {
@@ -297,14 +298,20 @@ export interface NewBookingPayload {
     total_amount: number
     onsite_contact_name: string
     onsite_contact_phone: string
+    payment_method: string
+    cleaning_buffer: number
   }
   company: {
     cnpj: string
     razao_social: string
+    inscricao_estadual: string
+    cep: string
+    endereco: string
   } | null
   user: {
     name: string
     email: string
     phone: string
+    role: string
   }
 }

@@ -34,7 +34,9 @@ function maskCep(v: string): string {
 
 function formatDate(raw: string | null): string {
   if (!raw) return "\u2014"
-  const d = new Date(raw.includes(" ") ? raw.replace(" ", "T") : raw)
+  let iso = raw.includes(" ") ? raw.replace(" ", "T") : raw
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) iso += "T12:00:00"
+  const d = new Date(iso)
   if (isNaN(d.getTime())) return raw
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
@@ -110,12 +112,12 @@ export function CompanyDossier({ companyId, companies, onClose, onCompanyUpdated
     try {
       const res = await authFetch(`${API_BASE_URL}/webhook/b40fd427-347c-42bf-a144-12010a448bb3/api/companies/${companyId}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
-          razao_social: draft.razao_social,
-          inscricao_estadual: draft.inscricao_estadual || null,
-          cep: draft.cep.replace(/\D/g, "") || null,
-          endereco: draft.endereco || null,
+          razao_social: draft.razao_social || "",
+          inscricao_estadual: draft.inscricao_estadual || "",
+          cep: (draft.cep || "").replace(/\D/g, ""),
+          endereco: draft.endereco || "",
         }),
       })
       if (!res.ok) throw new Error("Falha ao salvar")

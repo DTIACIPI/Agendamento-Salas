@@ -18,7 +18,7 @@ afterEach(() => {
 function mockJsonResponse(data: unknown, status = 200) {
   mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(data), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
   }))
 }
 
@@ -108,7 +108,7 @@ describe('PATCH /api/bookings/:id — edicao dossier', () => {
 
     await authFetch(`${EDIT_BASE}/abc-123`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
         responsavelData: {
           nome: 'Joao',
@@ -144,7 +144,7 @@ describe('PATCH /api/bookings/:id — edicao dossier', () => {
 
     await authFetch(`${EDIT_BASE}/abc-123`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
         responsavelData: { nome: 'Test', email: '', telefone: '', cargo: '' },
         eventoData: { nome: 'Test', finalidade: '', participantes: null, responsavelDia: '', contatoDia: '', pagamento: '', valorTotal: 0, status: 'Pre-reserva' },
@@ -167,7 +167,7 @@ describe('PATCH /api/bookings/:id/status — mudanca de status', () => {
 
     await authFetch(`${STATUS_BASE}/abc-123/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ status: 'Confirmada' }),
     })
 
@@ -180,7 +180,7 @@ describe('PATCH /api/bookings/:id/status — mudanca de status', () => {
 
     await authFetch(`${STATUS_BASE}/abc-123/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ status: 'Cancelada' }),
     })
 
@@ -193,7 +193,7 @@ describe('PATCH /api/bookings/:id/status — mudanca de status', () => {
 
     await authFetch(`${STATUS_BASE}/abc-123/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ status: 'Perdida' }),
     })
 
@@ -206,7 +206,7 @@ describe('PATCH /api/bookings/:id/status — mudanca de status', () => {
 
     await authFetch(`${STATUS_BASE}/abc-123/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ status: 'Concluída' }),
     })
 
@@ -219,7 +219,7 @@ describe('PATCH /api/bookings/:id/status — mudanca de status', () => {
 
     await authFetch(`${STATUS_BASE}/xyz-456/status`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ status: 'Confirmada' }),
     })
 
@@ -249,14 +249,16 @@ describe('POST /api/bookings — nova reserva', () => {
         total_amount: 3700,
         onsite_contact_name: 'Joao',
         onsite_contact_phone: '19999999999',
+        payment_method: 'Boleto',
+        cleaning_buffer: 0,
       },
-      company: { cnpj: '11222333000181', razao_social: 'Empresa Teste' },
-      user: { name: 'Joao', email: 'joao@test.com', phone: '19999999999' },
+      company: { cnpj: '11222333000181', razao_social: 'Empresa Teste', inscricao_estadual: '', cep: '13560000', endereco: 'Rua Teste 100, Centro' },
+      user: { name: 'Joao', email: 'joao@test.com', phone: '19999999999', role: 'Admin' },
     }
 
     await authFetch(CREATE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify(payload),
     })
 
@@ -286,14 +288,16 @@ describe('POST /api/bookings — nova reserva', () => {
         total_amount: 0,
         onsite_contact_name: 'Maria',
         onsite_contact_phone: '',
+        payment_method: 'Isento',
+        cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Maria', email: 'maria@gov.br', phone: '' },
+      user: { name: 'Maria', email: 'maria@gov.br', phone: '', role: 'Admin' },
     }
 
     await authFetch(CREATE_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify(payload),
     })
 
@@ -314,7 +318,7 @@ describe('POST /api/pricing/calculate — calculo automatico', () => {
 
     await authFetch(CALC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({
         space_id: 'room-1',
         booking_date: '2026-04-22',
@@ -335,7 +339,7 @@ describe('POST /api/pricing/calculate — calculo automatico', () => {
 
     const res = await authFetch(CALC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ space_id: 'room-1', booking_date: '2026-04-22', start_time: '08:00', end_time: '10:00' }),
     })
     const data = await res.json()
@@ -349,7 +353,7 @@ describe('POST /api/pricing/calculate — calculo automatico', () => {
 
     const res = await authFetch(CALC_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json; charset=utf-8' },
       body: JSON.stringify({ space_id: 'room-1', booking_date: '2026-04-22', start_time: '08:00', end_time: '10:00' }),
     })
     const data = await res.json()

@@ -45,7 +45,7 @@ export function ProfileModal({ open, onClose }: ProfileModalProps) {
     try {
       const res = await authFetch(USER_UPDATE(user.id), {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
           name: draftName.trim(),
           role_id: user.role === "Super Admin" ? 1 : 2,

@@ -6,7 +6,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { authFetch } from "@/lib/auth/auth-fetch"
-import { API_BASE_URL } from "@/lib/utils"
+import { API_BASE_URL, calculateBookingPrice } from "@/lib/utils"
 import type { Room, BookingType, NewBookingPayload } from "@/lib/types"
 
 const BOOKING_TYPES: { label: string; value: BookingType }[] = [
@@ -16,7 +16,7 @@ const BOOKING_TYPES: { label: string; value: BookingType }[] = [
   { label: "Uso Interno", value: "Uso Interno" },
 ]
 
-const EXEMPT_TYPES: BookingType[] = ["Cessão", "Uso Interno"]
+const EXEMPT_TYPES: BookingType[] = ["Cessão", "Uso Interno", "Curso"]
 
 function generateTimeSlots(start = "08:00", end = "22:00"): string[] {
   const slots: string[] = []
@@ -54,17 +54,27 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
   const [bookingType, setBookingType] = useState<BookingType>("Locação Cliente")
   const isExempt = EXEMPT_TYPES.includes(bookingType)
 
-  // Empresa
+  // Responsável
   const [contactName, setContactName] = useState("")
   const [contactEmail, setContactEmail] = useState("")
   const [contactPhone, setContactPhone] = useState("")
+
+  // Empresa
   const [cnpj, setCnpj] = useState("")
   const [razaoSocial, setRazaoSocial] = useState("")
+  const [inscricaoEstadual, setInscricaoEstadual] = useState("")
+  const [cep, setCep] = useState("")
+  const [endereco, setEndereco] = useState("")
+  const [numero, setNumero] = useState("")
+  const [complemento, setComplemento] = useState("")
+  const [bairro, setBairro] = useState("")
+  const [cidade, setCidade] = useState("")
+  const [estado, setEstado] = useState("SP")
 
   // Financeiro
   const [totalAmount, setTotalAmount] = useState("")
+  const [paymentMethod, setPaymentMethod] = useState("")
   const [isAutoCalc, setIsAutoCalc] = useState(false)
-  const [isCalcLoading, setIsCalcLoading] = useState(false)
 
   const timeSlots = useMemo(() => generateTimeSlots(), [])
 
@@ -90,7 +100,16 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
     setContactPhone("")
     setCnpj("")
     setRazaoSocial("")
+    setInscricaoEstadual("")
+    setCep("")
+    setEndereco("")
+    setNumero("")
+    setComplemento("")
+    setBairro("")
+    setCidade("")
+    setEstado("SP")
     setTotalAmount("")
+    setPaymentMethod("")
     setIsAutoCalc(false)
   }, [open])
 
@@ -101,37 +120,20 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
     }
   }, [isExempt])
 
-  const handleAutoCalc = async () => {
+  const handleAutoCalc = () => {
     if (!spaceId || !bookingDate || !startTime || !endTime) {
       toast.error("Preencha sala, data e horarios para calcular.")
       return
     }
-    setIsCalcLoading(true)
-    try {
-      const res = await authFetch(
-        `${API_BASE_URL}/webhook/api/pricing/calculate`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            space_id: spaceId,
-            booking_date: bookingDate,
-            start_time: startTime,
-            end_time: endTime,
-          }),
-        },
-      )
-      if (!res.ok) throw new Error("Falha no calculo")
-      const data = await res.json()
-      const val = data?.total ?? data?.total_amount ?? 0
-      setTotalAmount(Number(val).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-      setIsAutoCalc(true)
-      toast.success("Valor calculado automaticamente!")
-    } catch {
-      toast.error("Erro ao calcular valor. Insira manualmente.")
-    } finally {
-      setIsCalcLoading(false)
+    const room = rooms.find((r) => r.id === spaceId)
+    if (!room?.pricing) {
+      toast.error("Sala sem precificacao cadastrada.")
+      return
     }
+    const val = calculateBookingPrice(room.pricing, bookingDate, startTime, endTime)
+    setTotalAmount(val.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
+    setIsAutoCalc(true)
+    toast.success("Valor calculado!")
   }
 
   const validate = (): string | null => {
@@ -144,7 +146,13 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
     if (!contactEmail.trim()) return "Informe o email do contato."
     if (!isExempt && !cnpj.trim()) return "Informe o CNPJ."
     if (!isExempt && !razaoSocial.trim()) return "Informe a Razao Social."
+    if (!isExempt && !cep.trim()) return "Informe o CEP."
+    if (!isExempt && !endereco.trim()) return "Informe o Endereco."
+    if (!isExempt && !numero.trim()) return "Informe o Numero."
+    if (!isExempt && !bairro.trim()) return "Informe o Bairro."
+    if (!isExempt && !cidade.trim()) return "Informe a Cidade."
     if (!isExempt && !totalAmount.trim()) return "Informe o valor total."
+    if (!isExempt && !paymentMethod) return "Selecione o metodo de pagamento."
     return null
   }
 
@@ -169,21 +177,27 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
           total_amount: parsedAmount,
           onsite_contact_name: contactName.trim(),
           onsite_contact_phone: contactPhone.replace(/\D/g, ""),
+          payment_method: isExempt ? "Isento" : paymentMethod,
+          cleaning_buffer: 0,
         },
         company: isExempt ? null : {
           cnpj: cnpj.replace(/\D/g, ""),
           razao_social: razaoSocial.trim(),
+          inscricao_estadual: inscricaoEstadual.trim(),
+          cep: cep.replace(/\D/g, ""),
+          endereco: `${endereco.trim()}, ${numero.trim()}${complemento.trim() ? ` - ${complemento.trim()}` : ""}, ${bairro.trim()}, ${cidade.trim()} - ${estado}`,
         },
         user: {
           name: contactName.trim(),
           email: contactEmail.trim(),
           phone: contactPhone.replace(/\D/g, ""),
+          role: "Admin",
         },
       }
 
       const res = await authFetch(`${API_BASE_URL}/webhook/api/bookings`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       })
       if (!res.ok) throw new Error("Falha ao criar reserva")
@@ -242,7 +256,7 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
             </div>
             {isExempt && (
               <p className="mt-2 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                Reservas do tipo <strong>{bookingType}</strong> sao isentas de cobranca. CNPJ e Razao Social sao opcionais.
+                Reservas do tipo <strong>{bookingType}</strong> sao isentas de cobranca e nao exigem dados de empresa.
               </p>
             )}
           </div>
@@ -295,12 +309,12 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
             </div>
           </div>
 
-          {/* Dados do Cliente/Empresa */}
+          {/* Responsavel */}
           <div>
-            <div className={sectionHeaderClass}><Building2 className="w-4 h-4 text-[#184689]" /> Dados do Cliente / Empresa</div>
+            <div className={sectionHeaderClass}><Users className="w-4 h-4 text-[#184689]" /> Responsavel</div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className={labelClass}>Nome do Contato *</label>
+                <label className={labelClass}>Nome *</label>
                 <input type="text" value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Nome completo" className={inputClass} />
               </div>
               <div>
@@ -324,83 +338,152 @@ export function NewBookingModal({ open, rooms, onClose, onSaved }: NewBookingMod
                   className={inputClass}
                 />
               </div>
-              <div>
-                <label className={labelClass}>
-                  CNPJ {!isExempt && "*"}
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={cnpj}
-                  disabled={isExempt}
-                  onChange={(e) => {
-                    const d = e.target.value.replace(/\D/g, "").slice(0, 14)
-                    if (d.length <= 2) setCnpj(d)
-                    else if (d.length <= 5) setCnpj(d.replace(/^(\d{2})(\d{0,3})/, "$1.$2"))
-                    else if (d.length <= 8) setCnpj(d.replace(/^(\d{2})(\d{3})(\d{0,3})/, "$1.$2.$3"))
-                    else if (d.length <= 12) setCnpj(d.replace(/^(\d{2})(\d{3})(\d{3})(\d{0,4})/, "$1.$2.$3/$4"))
-                    else setCnpj(d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/, "$1.$2.$3/$4-$5"))
-                  }}
-                  placeholder="00.000.000/0000-00"
-                  maxLength={18}
-                  className={`${inputClass} ${isExempt ? "bg-slate-100 text-slate-400 cursor-not-allowed" : ""}`}
-                />
-              </div>
-              <div className="col-span-2">
-                <label className={labelClass}>
-                  Razao Social {!isExempt && "*"}
-                </label>
-                <input
-                  type="text"
-                  value={razaoSocial}
-                  disabled={isExempt}
-                  onChange={(e) => setRazaoSocial(e.target.value)}
-                  placeholder="Razao Social da empresa"
-                  className={`${inputClass} ${isExempt ? "bg-slate-100 text-slate-400 cursor-not-allowed" : ""}`}
-                />
-              </div>
             </div>
           </div>
 
-          {/* Financeiro */}
-          <div>
-            <div className={sectionHeaderClass}><DollarSign className="w-4 h-4 text-[#184689]" /> Financeiro</div>
-            <div className="grid grid-cols-2 gap-4 items-end">
-              <div>
-                <label className={labelClass}>Valor Total (R$) {!isExempt && "*"}</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">R$</span>
+          {/* Dados da Empresa — só para Locação Cliente */}
+          {!isExempt && (
+            <div>
+              <div className={sectionHeaderClass}><Building2 className="w-4 h-4 text-[#184689]" /> Dados da Empresa</div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={labelClass}>CNPJ *</label>
                   <input
                     type="text"
                     inputMode="numeric"
-                    value={totalAmount}
-                    disabled={isExempt}
+                    value={cnpj}
                     onChange={(e) => {
-                      setIsAutoCalc(false)
-                      const d = e.target.value.replace(/[^\d,]/g, "")
-                      setTotalAmount(d)
+                      const d = e.target.value.replace(/\D/g, "").slice(0, 14)
+                      if (d.length <= 2) setCnpj(d)
+                      else if (d.length <= 5) setCnpj(d.replace(/^(\d{2})(\d{0,3})/, "$1.$2"))
+                      else if (d.length <= 8) setCnpj(d.replace(/^(\d{2})(\d{3})(\d{0,3})/, "$1.$2.$3"))
+                      else if (d.length <= 12) setCnpj(d.replace(/^(\d{2})(\d{3})(\d{3})(\d{0,4})/, "$1.$2.$3/$4"))
+                      else setCnpj(d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{0,2})/, "$1.$2.$3/$4-$5"))
                     }}
-                    placeholder="0,00"
-                    className={`${inputClass} pl-10 ${isExempt ? "bg-slate-100 text-slate-400 cursor-not-allowed" : ""}`}
+                    placeholder="00.000.000/0000-00"
+                    maxLength={18}
+                    className={inputClass}
                   />
                 </div>
-              </div>
-              <div>
-                <button
-                  type="button"
-                  onClick={handleAutoCalc}
-                  disabled={isExempt || isCalcLoading}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-blue-50 text-[#184689] border-blue-200 hover:bg-blue-100"
-                >
-                  {isCalcLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calculator className="w-4 h-4" />}
-                  Calcular Automatico
-                </button>
-                {isAutoCalc && (
-                  <p className="text-[10px] text-emerald-600 mt-1">Valor calculado pela API</p>
-                )}
+                <div>
+                  <label className={labelClass}>Inscricao Estadual</label>
+                  <input
+                    type="text"
+                    value={inscricaoEstadual}
+                    onChange={(e) => setInscricaoEstadual(e.target.value)}
+                    placeholder="Isento"
+                    className={inputClass}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className={labelClass}>Razao Social *</label>
+                  <input
+                    type="text"
+                    value={razaoSocial}
+                    onChange={(e) => setRazaoSocial(e.target.value)}
+                    placeholder="Razao Social da empresa"
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>CEP *</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={cep}
+                    onChange={(e) => {
+                      const d = e.target.value.replace(/\D/g, "").slice(0, 8)
+                      if (d.length <= 5) setCep(d)
+                      else setCep(d.replace(/^(\d{5})(\d{0,3})/, "$1-$2"))
+                    }}
+                    placeholder="00000-000"
+                    maxLength={9}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Endereco *</label>
+                  <input type="text" value={endereco} onChange={(e) => setEndereco(e.target.value)} placeholder="Rua, Avenida..." className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Numero *</label>
+                  <input type="text" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="123" className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Complemento</label>
+                  <input type="text" value={complemento} onChange={(e) => setComplemento(e.target.value)} placeholder="Sala, Andar..." className={inputClass} />
+                </div>
+                <div>
+                  <label className={labelClass}>Bairro *</label>
+                  <input type="text" value={bairro} onChange={(e) => setBairro(e.target.value)} placeholder="Bairro" className={inputClass} />
+                </div>
+                <div className="grid grid-cols-[1fr_80px] gap-2">
+                  <div>
+                    <label className={labelClass}>Cidade *</label>
+                    <input type="text" value={cidade} onChange={(e) => setCidade(e.target.value)} placeholder="Cidade" className={inputClass} />
+                  </div>
+                  <div>
+                    <label className={labelClass}>UF</label>
+                    <select value={estado} onChange={(e) => setEstado(e.target.value)} className={inputClass}>
+                      {["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"].map((uf) => (
+                        <option key={uf} value={uf}>{uf}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* Financeiro — só para Locação Cliente */}
+          {!isExempt && (
+            <div>
+              <div className={sectionHeaderClass}><DollarSign className="w-4 h-4 text-[#184689]" /> Financeiro</div>
+              <div className="grid grid-cols-3 gap-4 items-end">
+                <div>
+                  <label className={labelClass}>Metodo de Pagamento *</label>
+                  <select value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} className={inputClass}>
+                    <option value="">Selecione...</option>
+                    <option value="boleto">Boleto Bancario</option>
+                    <option value="cartao_credito">Cartao de Credito</option>
+                    <option value="pix">PIX</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={labelClass}>Valor Total (R$) *</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-slate-400">R$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={totalAmount}
+                      onChange={(e) => {
+                        setIsAutoCalc(false)
+                        const d = e.target.value.replace(/[^\d,]/g, "")
+                        setTotalAmount(d)
+                      }}
+                      placeholder="0,00"
+                      className={`${inputClass} pl-10`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className={labelClass}>&nbsp;</label>
+                  <button
+                    type="button"
+                    onClick={handleAutoCalc}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium rounded-lg border transition-colors bg-blue-50 text-[#184689] border-blue-200 hover:bg-blue-100"
+                  >
+                    <Calculator className="w-4 h-4" />
+                    Calcular
+                  </button>
+                  {isAutoCalc && (
+                    <p className="text-[10px] text-emerald-600 mt-1">Valor calculado pela API</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

@@ -38,6 +38,9 @@ export async function authFetch(
     if (token) {
       headers.set("Authorization", `Bearer ${token}`)
     }
+    if (!headers.has("Content-Type") && init?.body) {
+      headers.set("Content-Type", "application/json; charset=utf-8")
+    }
   }
 
   const response = await fetch(input, { ...init, headers })

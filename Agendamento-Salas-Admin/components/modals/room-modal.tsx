@@ -35,6 +35,59 @@ const FLOOR_OPTIONS = ["Subsolo", "Térreo", "Primeiro Andar"] as const
 const INPUT_CLASS = "w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
 const LABEL_CLASS = "block text-xs font-bold uppercase text-slate-500 mb-1.5"
 
+function maskCurrency(raw: string): string {
+  const digits = raw.replace(/\D/g, "")
+  if (!digits) return ""
+  const cents = parseInt(digits, 10)
+  return (cents / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function unmaskCurrency(masked: string): number {
+  if (!masked) return 0
+  const clean = masked.replace(/\./g, "").replace(",", ".")
+  return parseFloat(clean) || 0
+}
+
+function currencyToDisplay(raw: string): string {
+  if (!raw) return ""
+  const n = parseFloat(raw)
+  if (isNaN(n)) return raw
+  return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function ShiftRow({ icon, label, baseValue, onBaseChange, extraValue, onExtraChange }: {
+  icon: React.ReactNode
+  label: string
+  baseValue: string
+  onBaseChange: (v: string) => void
+  extraValue: string
+  onExtraChange: (v: string) => void
+}) {
+  return (
+    <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+      <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+        {icon} {label}
+      </div>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={baseValue}
+        onChange={(e) => onBaseChange(maskCurrency(e.target.value))}
+        className={INPUT_CLASS}
+        placeholder="0,00"
+      />
+      <input
+        type="text"
+        inputMode="numeric"
+        value={extraValue}
+        onChange={(e) => onExtraChange(maskCurrency(e.target.value))}
+        className={INPUT_CLASS}
+        placeholder="0,00"
+      />
+    </div>
+  )
+}
+
 export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = false }: RoomModalProps) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -137,25 +190,25 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
       const p = d.pricing
       if (p) {
         // Dias úteis
-        setPriceMorningWd(String(p.weekdays?.morning?.base ?? ""))
-        setExtraMorningWd(String(p.weekdays?.morning?.extra ?? ""))
-        setPriceAfternoonWd(String(p.weekdays?.afternoon?.base ?? ""))
-        setExtraAfternoonWd(String(p.weekdays?.afternoon?.extra ?? ""))
-        setPriceNightWd(String(p.weekdays?.night?.base ?? ""))
-        setExtraNightWd(String(p.weekdays?.night?.extra ?? ""))
+        setPriceMorningWd(currencyToDisplay(String(p.weekdays?.morning?.base ?? "")))
+        setExtraMorningWd(currencyToDisplay(String(p.weekdays?.morning?.extra ?? "")))
+        setPriceAfternoonWd(currencyToDisplay(String(p.weekdays?.afternoon?.base ?? "")))
+        setExtraAfternoonWd(currencyToDisplay(String(p.weekdays?.afternoon?.extra ?? "")))
+        setPriceNightWd(currencyToDisplay(String(p.weekdays?.night?.base ?? "")))
+        setExtraNightWd(currencyToDisplay(String(p.weekdays?.night?.extra ?? "")))
         setMinHoursWd(String(p.weekdays?.min_hours ?? 4))
         // Fins de semana
-        setPriceMorningWe(String(p.weekends?.morning?.base ?? ""))
-        setExtraMorningWe(String(p.weekends?.morning?.extra ?? ""))
-        setPriceAfternoonWe(String(p.weekends?.afternoon?.base ?? ""))
-        setExtraAfternoonWe(String(p.weekends?.afternoon?.extra ?? ""))
-        setPriceNightWe(String(p.weekends?.night?.base ?? ""))
-        setExtraNightWe(String(p.weekends?.night?.extra ?? ""))
+        setPriceMorningWe(currencyToDisplay(String(p.weekends?.morning?.base ?? "")))
+        setExtraMorningWe(currencyToDisplay(String(p.weekends?.morning?.extra ?? "")))
+        setPriceAfternoonWe(currencyToDisplay(String(p.weekends?.afternoon?.base ?? "")))
+        setExtraAfternoonWe(currencyToDisplay(String(p.weekends?.afternoon?.extra ?? "")))
+        setPriceNightWe(currencyToDisplay(String(p.weekends?.night?.base ?? "")))
+        setExtraNightWe(currencyToDisplay(String(p.weekends?.night?.extra ?? "")))
         setMinHoursWe(String(p.weekends?.min_hours ?? 4))
         // Montagem
         setAllowsAssembly(p.assembly?.allowed ?? false)
-        setAssemblyHalfPrice(String(p.assembly?.half_price ?? ""))
-        setAssemblyFullPrice(String(p.assembly?.full_price ?? ""))
+        setAssemblyHalfPrice(currencyToDisplay(String(p.assembly?.half_price ?? "")))
+        setAssemblyFullPrice(currencyToDisplay(String(p.assembly?.full_price ?? "")))
       }
     } catch (error) {
       if ((error as Error).name === "AbortError") return
@@ -277,24 +330,24 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
         payload.min_hours_wd = Number(minHoursWd)
         payload.min_hours_we = Number(minHoursWe)
         // Dias úteis — base + extra
-        payload.price_morning_wd = Number(priceMorningWd)
-        payload.extra_hour_morning_wd = Number(extraMorningWd)
-        payload.price_afternoon_wd = Number(priceAfternoonWd)
-        payload.extra_hour_afternoon_wd = Number(extraAfternoonWd)
-        payload.price_night_wd = Number(priceNightWd)
-        payload.extra_hour_night_wd = Number(extraNightWd)
+        payload.price_morning_wd = unmaskCurrency(priceMorningWd)
+        payload.extra_hour_morning_wd = unmaskCurrency(extraMorningWd)
+        payload.price_afternoon_wd = unmaskCurrency(priceAfternoonWd)
+        payload.extra_hour_afternoon_wd = unmaskCurrency(extraAfternoonWd)
+        payload.price_night_wd = unmaskCurrency(priceNightWd)
+        payload.extra_hour_night_wd = unmaskCurrency(extraNightWd)
         // Fins de semana — base + extra
-        payload.price_morning_we = Number(priceMorningWe)
-        payload.extra_hour_morning_we = Number(extraMorningWe)
-        payload.price_afternoon_we = Number(priceAfternoonWe)
-        payload.extra_hour_afternoon_we = Number(extraAfternoonWe)
-        payload.price_night_we = Number(priceNightWe)
-        payload.extra_hour_night_we = Number(extraNightWe)
+        payload.price_morning_we = unmaskCurrency(priceMorningWe)
+        payload.extra_hour_morning_we = unmaskCurrency(extraMorningWe)
+        payload.price_afternoon_we = unmaskCurrency(priceAfternoonWe)
+        payload.extra_hour_afternoon_we = unmaskCurrency(extraAfternoonWe)
+        payload.price_night_we = unmaskCurrency(priceNightWe)
+        payload.extra_hour_night_we = unmaskCurrency(extraNightWe)
         // Montagem
         payload.allows_assembly = allowsAssembly
         if (allowsAssembly) {
-          payload.assembly_half_price = Number(assemblyHalfPrice)
-          payload.assembly_full_price = Number(assemblyFullPrice)
+          payload.assembly_half_price = unmaskCurrency(assemblyHalfPrice)
+          payload.assembly_full_price = unmaskCurrency(assemblyFullPrice)
         }
       }
 
@@ -305,7 +358,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
 
       const res = await authFetch(url, {
         method,
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       })
 
@@ -334,40 +387,6 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
       ? [{ id: "precificacao" as TabId, label: "Precificacao", icon: <CreditCard className="w-4 h-4" /> }]
       : []),
   ]
-
-  // Helper: linha da grid de turnos (usado em Dias Úteis e Fins de Semana)
-  const ShiftRow = ({ icon, label, baseValue, onBaseChange, extraValue, onExtraChange }: {
-    icon: React.ReactNode
-    label: string
-    baseValue: string
-    onBaseChange: (v: string) => void
-    extraValue: string
-    onExtraChange: (v: string) => void
-  }) => (
-    <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
-      <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
-        {icon} {label}
-      </div>
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        value={baseValue}
-        onChange={(e) => onBaseChange(e.target.value)}
-        className={INPUT_CLASS}
-        placeholder="0.00"
-      />
-      <input
-        type="number"
-        step="0.01"
-        min="0"
-        value={extraValue}
-        onChange={(e) => onExtraChange(e.target.value)}
-        className={INPUT_CLASS}
-        placeholder="0.00"
-      />
-    </div>
-  )
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -761,25 +780,23 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
                           <div>
                             <label className={LABEL_CLASS}>Meio Periodo (R$)</label>
                             <input
-                              type="number"
-                              step="0.01"
-                              min="0"
+                              type="text"
+                              inputMode="numeric"
                               value={assemblyHalfPrice}
-                              onChange={(e) => setAssemblyHalfPrice(e.target.value)}
+                              onChange={(e) => setAssemblyHalfPrice(maskCurrency(e.target.value))}
                               className={INPUT_CLASS}
-                              placeholder="200.00"
+                              placeholder="0,00"
                             />
                           </div>
                           <div>
                             <label className={LABEL_CLASS}>Periodo Completo (R$)</label>
                             <input
-                              type="number"
-                              step="0.01"
-                              min="0"
+                              type="text"
+                              inputMode="numeric"
                               value={assemblyFullPrice}
-                              onChange={(e) => setAssemblyFullPrice(e.target.value)}
+                              onChange={(e) => setAssemblyFullPrice(maskCurrency(e.target.value))}
                               className={INPUT_CLASS}
-                              placeholder="400.00"
+                              placeholder="0,00"
                             />
                           </div>
                         </div>

@@ -42,7 +42,7 @@ const ROUTES = {
 const TIMEOUT = 30_000
 
 const AUTH_HEADERS: Record<string, string> = {
-  'Content-Type': 'application/json',
+  'Content-Type': 'application/json; charset=utf-8',
   'Authorization': `Bearer ${TOKEN}`,
 }
 
@@ -132,7 +132,7 @@ describe('GET /api/settings — configuracoes (publica)', () => {
 //  2. VERIFICACAO 401 SEM TOKEN
 // ═══════════════════════════════════════════════════════════════
 describe('rotas protegidas retornam 401 sem token', () => {
-  const NO_AUTH = { 'Content-Type': 'application/json' }
+  const NO_AUTH = { 'Content-Type': 'application/json; charset=utf-8' }
   const routes = [
     ['bookings', `${ROUTES.bookings}?limit=1&offset=0`],
     ['coupons', ROUTES.coupons],
@@ -284,20 +284,23 @@ describe('Locatario: POST /api/public/bookings — Locacao Cliente', () => {
       company: {
         cnpj: '11222333000181',
         razao_social: 'Empresa Teste Locatario',
-        inscricao_estadual: '',
+        inscricao_estadual: '123456789',
+        cep: '13560000',
+        endereco: 'Rua Teste 123, Centro',
       },
       user: {
         name: 'Locatario Bot',
         email: 'locatario@teste.com',
         phone: '19999999999',
+        role: 'Locatario',
       },
       booking: {
         booking_type: 'Locação Cliente',
         space_id: spaceId,
         space_name: 'Sala Teste',
-        booking_date: '2026-12-20',
-        start_time: '08:00',
-        end_time: '10:00',
+        date: '2026-12-20',
+        startTime: '08:00',
+        endTime: '10:00',
         event_name: '[TESTE E2E] Locacao via Locatario',
         event_purpose: 'Teste automatizado',
         estimated_attendees: 20,
@@ -307,6 +310,7 @@ describe('Locatario: POST /api/public/bookings — Locacao Cliente', () => {
         total_amount: 1500,
         coupon_code: null,
         coupon_discount: null,
+        cleaning_buffer: 0,
       },
     })
     expectOk(res.status)
@@ -338,9 +342,10 @@ describe('Admin: POST /api/bookings — Cessao', () => {
         event_purpose: 'Cessao municipal', estimated_attendees: 50,
         booking_type: 'Cessão', total_amount: 0,
         onsite_contact_name: 'Bot Cessao', onsite_contact_phone: '19999998888',
+        payment_method: 'Isento', cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Bot Cessao', email: 'cessao@acipi.com.br', phone: '19999998888' },
+      user: { name: 'Bot Cessao', email: 'cessao@acipi.com.br', phone: '19999998888', role: 'Admin' },
     })
     expectOk(res.status)
   }, TIMEOUT)
@@ -357,9 +362,10 @@ describe('Admin: POST /api/bookings — Uso Interno', () => {
         event_purpose: 'Reuniao interna', estimated_attendees: 10,
         booking_type: 'Uso Interno', total_amount: 0,
         onsite_contact_name: 'Bot Interno', onsite_contact_phone: '19999997777',
+        payment_method: 'Isento', cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Bot Interno', email: 'interno@acipi.com.br', phone: '19999997777' },
+      user: { name: 'Bot Interno', email: 'interno@acipi.com.br', phone: '19999997777', role: 'Admin' },
     })
     expectOk(res.status)
   }, TIMEOUT)
@@ -376,9 +382,10 @@ describe('Admin: POST /api/bookings — Curso', () => {
         event_purpose: 'Treinamento seguranca', estimated_attendees: 25,
         booking_type: 'Curso', total_amount: 0,
         onsite_contact_name: 'Bot Curso', onsite_contact_phone: '19999996666',
+        payment_method: 'Isento', cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Bot Curso', email: 'curso@acipi.com.br', phone: '19999996666' },
+      user: { name: 'Bot Curso', email: 'curso@acipi.com.br', phone: '19999996666', role: 'Admin' },
     })
     expectOk(res.status)
   }, TIMEOUT)
@@ -400,9 +407,10 @@ describe('Transicao de status — cobre todos os 6 status', () => {
         event_purpose: 'Teste status', estimated_attendees: 5,
         booking_type: 'Locação Cliente', total_amount: 100,
         onsite_contact_name: 'Bot', onsite_contact_phone: '19999990000',
+        payment_method: 'Boleto', cleaning_buffer: 0,
       },
-      company: { cnpj: '99888777000100', razao_social: 'Empresa Status' },
-      user: { name: 'Bot Status', email: 'status@teste.com', phone: '19999990000' },
+      company: { cnpj: '99888777000100', razao_social: 'Empresa Status', inscricao_estadual: '', cep: '13560000', endereco: 'Rua Status 10' },
+      user: { name: 'Bot Status', email: 'status@teste.com', phone: '19999990000', role: 'Locatario' },
     })
     expectOk(res.status)
     bookingId = unwrap(data)?.id ?? unwrap(data)?.booking_id ?? null
@@ -440,9 +448,10 @@ describe('Fluxo completo E2E: criar → detalhar → editar → status', () => {
         event_purpose: 'Teste E2E', estimated_attendees: 5,
         booking_type: 'Uso Interno', total_amount: 0,
         onsite_contact_name: 'Bot', onsite_contact_phone: '19999999999',
+        payment_method: 'Isento', cleaning_buffer: 0,
       },
       company: null,
-      user: { name: 'Bot', email: 'teste@acipi.com.br', phone: '19999999999' },
+      user: { name: 'Bot', email: 'teste@acipi.com.br', phone: '19999999999', role: 'Admin' },
     })
     expectOk(res.status)
     createdId = unwrap(data)?.id ?? unwrap(data)?.booking_id ?? null

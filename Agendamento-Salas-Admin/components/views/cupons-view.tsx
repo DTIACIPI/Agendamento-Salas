@@ -26,7 +26,7 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
     try {
       const res = await authFetch(`${API_BASE_URL}/webhook/4506df66-209d-443d-bc88-1e3aac67ea49/api/coupons/${coupon.id}`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({ is_active: !coupon.is_active }),
       })
       if (!res.ok) throw new Error("Falha ao alterar status")

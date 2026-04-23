@@ -84,7 +84,13 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
           throw new Error('Falha ao carregar os dados do servidor.')
         }
 
-        const data = await response.json()
+        const text = await response.text()
+        if (!text.trim()) {
+          setSpaces([])
+          if (onLoadedSpaces) onLoadedSpaces([])
+          return
+        }
+        const data = JSON.parse(text)
 
         const rawArray = Array.isArray(data?.data)
           ? data.data
@@ -185,6 +191,18 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 p-6 text-center shadow-sm">
         <p className="text-sm font-medium text-red-600">{error}</p>
+      </div>
+    )
+  }
+
+  if (spaces.length === 0) {
+    return (
+      <div className="flex h-48 w-full flex-col items-center justify-center rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+        <svg xmlns="http://www.w3.org/2000/svg" className="mb-3 h-10 w-10 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 21h19.5m-18-18v18m10.5-18v18m6-13.5V21M6.75 6.75h.75m-.75 3h.75m-.75 3h.75m3-6h.75m-.75 3h.75m-.75 3h.75M6.75 21v-3.375c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21M3 3h12m-.75 4.5H21m-3.75 3H21m-3.75 3H21" />
+        </svg>
+        <p className="text-sm font-medium text-slate-500">Nenhuma sala disponivel no momento.</p>
+        <p className="mt-1 text-xs text-slate-400">Por favor, tente novamente mais tarde.</p>
       </div>
     )
   }

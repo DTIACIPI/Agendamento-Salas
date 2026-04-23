@@ -190,7 +190,7 @@ export function CartDialog({
 
     try {
       const res = await fetch(
-        `${API_BASE_URL}/webhook/api/public/coupons/validate?code=${encodeURIComponent(code)}`
+        `${API_BASE_URL}/webhook/api/coupons/validate?code=${encodeURIComponent(code)}`
       )
       const text = await res.text()
       if (!text) { setCouponError("Cupom não encontrado."); setAppliedCoupon(null); return }
@@ -246,9 +246,9 @@ export function CartDialog({
       setIsPricingLoading(true)
       try {
         const cleanCnpj = cnpj.replace(/\D/g, "")
-        const res = await fetch(`${API_BASE_URL}/webhook/api/public/pricing/calculate`, {
+        const res = await fetch(`${API_BASE_URL}/webhook/api/pricing/calculate`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({
             cnpj: cleanCnpj,
             coupon_discount_pct: appliedCoupon?.discount_type === "percentage" ? appliedCoupon.discount_value : 0,
@@ -280,7 +280,7 @@ export function CartDialog({
     setIsValidating(true)
     try {
       const cleanCnpj = cnpj.replace(/\D/g, "")
-      const urlValidateCompany = `${API_BASE_URL}/webhook/api/public/companies/validate/${cleanCnpj}`
+      const urlValidateCompany = `${API_BASE_URL}/webhook/validate-cnpj-webhook/api/companies/validate/${cleanCnpj}`
 
       const companyRes = await fetch(urlValidateCompany).catch((err) => {
         console.error("Erro no fetch validate-cnpj:", err)

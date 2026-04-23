@@ -32,7 +32,7 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
     try {
       const res = await authFetch(`${API_BASE_URL}/webhook/api/settings`, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(draft),
       })
       if (!res.ok) throw new Error("Falha ao salvar configuracoes")
