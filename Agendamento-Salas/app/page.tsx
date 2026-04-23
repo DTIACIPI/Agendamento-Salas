@@ -20,12 +20,22 @@ export interface BookingItem {
   price: number
   hasConflict?: boolean
   confirmedToCart?: boolean
+  requiresAssembly?: boolean
 }
 
 export interface OccupiedSlot {
   date: string;
   startTime: string;
   endTime: string;
+}
+
+function parseAvailabilityResponse(raw: unknown): OccupiedSlot[] {
+  const arr = Array.isArray(raw) ? raw : (raw as any)?.occupied ?? []
+  return arr.map((s: any) => ({
+    date: s.booking_date ?? s.date ?? "",
+    startTime: (s.start_time ?? s.startTime ?? "").substring(0, 5),
+    endTime: (s.end_time ?? s.endTime ?? "").substring(0, 5),
+  }))
 }
 
 const ReservationProcessCard = () => {
@@ -146,7 +156,7 @@ export default function Home() {
   useEffect(() => {
     const fetchSettings = async () => {
       try {
-        const res = await fetch(`${API_BASE_URL}/webhook/api/settings`, { cache: 'no-store' })
+        const res = await fetch(`${API_BASE_URL}/webhook/api/public/settings`, { cache: 'no-store' })
         if (!res.ok) throw new Error("Falha ao buscar configurações")
         const data = await res.json()
         if (data.success && data.settings) {
@@ -207,7 +217,7 @@ export default function Home() {
     const fetchRoomDetails = async () => {
       setIsRoomDetailsLoading(true);
       try {
-        const apiUrl = `${API_BASE_URL}/webhook/977b3245-3a83-43db-97be-cbc2eb07f9dc/api/spaces/${selectedRoom.id}`;
+        const apiUrl = `${API_BASE_URL}/webhook/d7ed871c-3157-4b93-8cbb-d190140dc34b/api/public/spaces/${selectedRoom.id}`;
         const res = await fetch(apiUrl, { cache: 'no-store' });
         
         if (!res.ok) throw new Error("Falha ao buscar dossiê no n8n");
@@ -258,7 +268,7 @@ export default function Home() {
 
       setAvailabilityLoading(true);
       try {
-        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
+        const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${startStr}&end_date=${endStr}`;
         
         const res = await fetch(apiUrl, { cache: 'no-store' });
         if (!res.ok) throw new Error("Falha ao buscar viabilidade do período");
@@ -272,14 +282,9 @@ export default function Home() {
         }
 
         const data = JSON.parse(textData);
-        
-        if (data.success && data.occupied) {
-          availabilityCacheRef.current[cacheKey] = data.occupied;
-          setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: data.occupied }));
-        } else {
-          availabilityCacheRef.current[cacheKey] = [];
-          setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: [] }));
-        }
+        const slots = parseAvailabilityResponse(data);
+        availabilityCacheRef.current[cacheKey] = slots;
+        setOccupiedSlotsByRoom(prev => ({ ...prev, [selectedRoom.id]: slots }));
       } catch (error) {
         console.error("Erro no prefetch de disponibilidade:", error);
       } finally {
@@ -463,7 +468,7 @@ export default function Home() {
         setAvailabilityLoading(true)
         try {
           const dateStr = formatDateToISO(date)
-          const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
+          const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`
           
           const res = await fetch(apiUrl, { cache: 'no-store' })
           if (!res.ok) throw new Error("API fetch failed")
@@ -475,16 +480,14 @@ export default function Home() {
             availabilityData = JSON.parse(textData);
           }
 
-          let daySpecificOccupiedSlots: OccupiedSlot[] = []
-          if (availabilityData.success && availabilityData.occupied) {
-            daySpecificOccupiedSlots = availabilityData.occupied
-            
+          const daySpecificOccupiedSlots = parseAvailabilityResponse(availabilityData)
+          if (daySpecificOccupiedSlots.length > 0) {
             setOccupiedSlotsByRoom((prev) => {
               const roomSlots = prev[selectedRoom.id] || [];
               const filtered = roomSlots.filter((s) => s.date !== dateStr)
               return { ...prev, [selectedRoom.id]: [...filtered, ...daySpecificOccupiedSlots] }
             })
-            
+
             const cacheKeys = Object.keys(availabilityCacheRef.current);
             for (const key of cacheKeys) {
               if (key.includes(selectedRoom.id)) {
@@ -554,18 +557,17 @@ export default function Home() {
 
     try {
       const fetchPromises = roomBookingsToUpdate.map(item => {
-        if (!item.selectedRange.from) return Promise.resolve({ success: false, date: null });
+        if (!item.selectedRange.from) return Promise.resolve({ raw: [], date: null as string | null });
         const dateStr = formatDateToISO(item.selectedRange.from);
-        const apiUrl = `${API_BASE_URL}/webhook/api/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
-        
+        const apiUrl = `${API_BASE_URL}/webhook/api/public/availability?space_id=${selectedRoom.id}&start_date=${dateStr}&end_date=${dateStr}`;
+
         return fetch(apiUrl, { cache: 'no-store' })
           .then(async res => {
             if (!res.ok) throw new Error(`API fetch failed for ${dateStr}`);
             const textData = await res.text();
-            if (!textData) return { success: false, occupied: [] };
-            return JSON.parse(textData);
-          })
-          .then(data => ({ ...data, date: dateStr }));
+            if (!textData) return { raw: [], date: dateStr };
+            return { raw: JSON.parse(textData), date: dateStr };
+          });
       });
 
       const results = await Promise.allSettled(fetchPromises);
@@ -574,13 +576,11 @@ export default function Home() {
       const allNewOccupiedSlots: OccupiedSlot[] = [];
 
       results.forEach(result => {
-        if (result.status === 'fulfilled' && result.value.success) {
+        if (result.status === 'fulfilled' && result.value.date) {
           const date = result.value.date;
-          const occupied = result.value.occupied || [];
-          if (date) {
-            availabilityMap.set(date, occupied);
-            allNewOccupiedSlots.push(...occupied);
-          }
+          const occupied = parseAvailabilityResponse(result.value.raw);
+          availabilityMap.set(date, occupied);
+          allNewOccupiedSlots.push(...occupied);
         }
       });
 

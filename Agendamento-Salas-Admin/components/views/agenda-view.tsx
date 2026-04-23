@@ -236,7 +236,7 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
             <p className="text-xs text-slate-500 mt-0.5">{ev.company_name}</p>
           </div>
           <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span className="font-semibold">{ev.start_time} - {ev.end_time}</span>
+            <span className="font-semibold">{ev.start_time} - {ev.event_end_time ?? ev.end_time}</span>
             <span className="text-slate-300">|</span>
             <span>{new Date(ev.date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "short" })}</span>
           </div>

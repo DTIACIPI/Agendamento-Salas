@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useCallback, useRef } from "react"
 import {
-  X, Save, Plus, AlignLeft, CreditCard, Tag, ImageIcon,
-  Loader2, Trash2, ImageOff, Star, Upload,
+  X, Save, Plus, AlignLeft, CreditCard, ImageIcon,
+  Loader2, Trash2, ImageOff, Star, Upload, Building2,
+  Sun, Sunset, Moon, Clock, Wrench, ToggleLeft, ToggleRight,
+  Package, Tag,
 } from "lucide-react"
 import { toast } from "sonner"
 import { API_BASE_URL } from "@/lib/utils"
 import { authFetch } from "@/lib/auth/auth-fetch"
 import { ALL_AMENITIES } from "@/lib/mock-data"
 import { uploadImageToSupabase } from "@/lib/upload"
-import type { Room, RoomDetail, RoomPayload } from "@/lib/types"
+import type { Room, RoomPayload } from "@/lib/types"
 
 interface RoomModalProps {
   open: boolean
@@ -20,52 +22,87 @@ interface RoomModalProps {
   isSuperAdmin?: boolean
 }
 
-// Representa uma imagem no formulário: URL existente ou File novo
 interface ImageEntry {
   type: "url" | "file"
-  url: string       // URL pública (existente) ou objectURL (preview do file)
-  file?: File       // Só existe quando type === "file"
+  url: string
+  file?: File
 }
+
+type TabId = "operacional" | "precificacao"
+
+const FLOOR_OPTIONS = ["Subsolo", "Térreo", "Primeiro Andar"] as const
+
+const INPUT_CLASS = "w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
+const LABEL_CLASS = "block text-xs font-bold uppercase text-slate-500 mb-1.5"
 
 export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = false }: RoomModalProps) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [activeTab, setActiveTab] = useState<TabId>("operacional")
 
-  // Form state
+  // === Aba 1: Informações Operacionais ===
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
   const [capacity, setCapacity] = useState("")
-  const [status, setStatus] = useState("Disponível")
-  const [weekdayPrice, setWeekdayPrice] = useState("")
-  const [minHoursWeekday, setMinHoursWeekday] = useState("2")
-  const [saturdayPrice, setSaturdayPrice] = useState("")
-  const [minHoursSaturday, setMinHoursSaturday] = useState("4")
   const [cleaningBuffer, setCleaningBuffer] = useState("30")
+  const [floor, setFloor] = useState("Térreo")
+  const [inventory, setInventory] = useState("")
   const [amenities, setAmenities] = useState<string[]>([])
+  const [status, setStatus] = useState("Disponível")
   const [imageEntries, setImageEntries] = useState<ImageEntry[]>([])
   const [coverIndex, setCoverIndex] = useState(0)
+
+  // === Aba 2: Precificação (Super Admin only) ===
+  // Turnos dias úteis — base
+  const [priceMorningWd, setPriceMorningWd] = useState("")
+  const [priceAfternoonWd, setPriceAfternoonWd] = useState("")
+  const [priceNightWd, setPriceNightWd] = useState("")
+  // Turnos dias úteis — extra
+  const [extraMorningWd, setExtraMorningWd] = useState("")
+  const [extraAfternoonWd, setExtraAfternoonWd] = useState("")
+  const [extraNightWd, setExtraNightWd] = useState("")
+  // Turnos fins de semana — base
+  const [priceMorningWe, setPriceMorningWe] = useState("")
+  const [priceAfternoonWe, setPriceAfternoonWe] = useState("")
+  const [priceNightWe, setPriceNightWe] = useState("")
+  // Turnos fins de semana — extra
+  const [extraMorningWe, setExtraMorningWe] = useState("")
+  const [extraAfternoonWe, setExtraAfternoonWe] = useState("")
+  const [extraNightWe, setExtraNightWe] = useState("")
+  // Franquias
+  const [minHoursWd, setMinHoursWd] = useState("4")
+  const [minHoursWe, setMinHoursWe] = useState("4")
+  // Montagem
+  const [allowsAssembly, setAllowsAssembly] = useState(false)
+  const [assemblyHalfPrice, setAssemblyHalfPrice] = useState("")
+  const [assemblyFullPrice, setAssemblyFullPrice] = useState("")
 
   const [isSaving, setIsSaving] = useState(false)
   const [saveLabel, setSaveLabel] = useState("")
 
-  // Reset form
   const resetForm = useCallback(() => {
+    setActiveTab("operacional")
     setName("")
     setDescription("")
     setCapacity("")
-    setStatus("Disponível")
-    setWeekdayPrice("")
-    setMinHoursWeekday("2")
-    setSaturdayPrice("")
-    setMinHoursSaturday("4")
     setCleaningBuffer("30")
+    setFloor("Térreo")
+    setInventory("")
     setAmenities([])
+    setStatus("Disponível")
     setImageEntries([])
     setCoverIndex(0)
+    setPriceMorningWd(""); setPriceAfternoonWd(""); setPriceNightWd("")
+    setExtraMorningWd(""); setExtraAfternoonWd(""); setExtraNightWd("")
+    setPriceMorningWe(""); setPriceAfternoonWe(""); setPriceNightWe("")
+    setExtraMorningWe(""); setExtraAfternoonWe(""); setExtraNightWe("")
+    setMinHoursWd("4"); setMinHoursWe("4")
+    setAllowsAssembly(false)
+    setAssemblyHalfPrice(""); setAssemblyFullPrice("")
     setSaveLabel("")
   }, [])
 
-  // Fetch detail when editing
+  // Unflatten: preencher formulário a partir do GET /api/spaces/:id
   const fetchDetail = useCallback(async (id: string, signal?: AbortSignal) => {
     setIsLoadingDetail(true)
     try {
@@ -75,33 +112,51 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
       })
       if (!res.ok) throw new Error("Falha ao buscar detalhes da sala")
       const data = await res.json()
-      // API sempre retorna wrapped em []
-      const d = (Array.isArray(data) ? data[0] : data) as RoomDetail
+      const d = (Array.isArray(data) ? data[0] : data) as Room
 
-      // Populate form
+      // Aba 1 — Operacional
       setName(d.name || "")
       setDescription(d.description || "")
       setCapacity(String(d.capacity || ""))
-      setStatus(d.status || (d.available === 1 || d.available === true ? "Disponível" : "Indisponível"))
-
-      // Preços — pode vir flat ou dentro de pricePeriodsWeekday
-      const wPrice = d.price_per_hour_weekday ?? d.pricePeriodsWeekday?.[0]?.price ?? ""
-      const sPrice = d.price_per_hour_weekend ?? d.pricePeriodsSaturday?.[0]?.price ?? ""
-      setWeekdayPrice(String(wPrice))
-      setSaturdayPrice(String(sPrice))
-      setMinHoursWeekday(String(d.min_hours_weekday ?? 2))
-      setMinHoursSaturday(String(d.min_hours_weekend ?? 4))
       setCleaningBuffer(String(d.cleaning_buffer ?? 30))
+      setFloor(d.floor || "Térreo")
+      setInventory(d.inventory || "")
+      setAmenities(d.amenities ?? [])
 
-      setAmenities(d.infrastructure ?? d.amenities ?? [])
+      const isActive = d.is_active ?? d.available
+      setStatus(isActive === false ? "Indisponível" : "Disponível")
 
-      // Imagens — montar ImageEntry[] a partir das URLs existentes
+      // Imagens
       const urls = d.images ?? (d.image ? [d.image] : [])
       setImageEntries(urls.map((u: string) => ({ type: "url" as const, url: u })))
-      // A capa é a image principal ou a primeira
       const coverUrl = d.image || urls[0] || null
       const cIdx = coverUrl ? urls.indexOf(coverUrl) : 0
       setCoverIndex(cIdx >= 0 ? cIdx : 0)
+
+      // Aba 2 — Precificação (unflatten do objeto pricing aninhado)
+      const p = d.pricing
+      if (p) {
+        // Dias úteis
+        setPriceMorningWd(String(p.weekdays?.morning?.base ?? ""))
+        setExtraMorningWd(String(p.weekdays?.morning?.extra ?? ""))
+        setPriceAfternoonWd(String(p.weekdays?.afternoon?.base ?? ""))
+        setExtraAfternoonWd(String(p.weekdays?.afternoon?.extra ?? ""))
+        setPriceNightWd(String(p.weekdays?.night?.base ?? ""))
+        setExtraNightWd(String(p.weekdays?.night?.extra ?? ""))
+        setMinHoursWd(String(p.weekdays?.min_hours ?? 4))
+        // Fins de semana
+        setPriceMorningWe(String(p.weekends?.morning?.base ?? ""))
+        setExtraMorningWe(String(p.weekends?.morning?.extra ?? ""))
+        setPriceAfternoonWe(String(p.weekends?.afternoon?.base ?? ""))
+        setExtraAfternoonWe(String(p.weekends?.afternoon?.extra ?? ""))
+        setPriceNightWe(String(p.weekends?.night?.base ?? ""))
+        setExtraNightWe(String(p.weekends?.night?.extra ?? ""))
+        setMinHoursWe(String(p.weekends?.min_hours ?? 4))
+        // Montagem
+        setAllowsAssembly(p.assembly?.allowed ?? false)
+        setAssemblyHalfPrice(String(p.assembly?.half_price ?? ""))
+        setAssemblyFullPrice(String(p.assembly?.full_price ?? ""))
+      }
     } catch (error) {
       if ((error as Error).name === "AbortError") return
       console.error("Erro ao carregar detalhes da sala:", error)
@@ -132,13 +187,15 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // === Amenities ===
   const toggleAmenity = (item: string) => {
     setAmenities((prev) =>
       prev.includes(item) ? prev.filter((a) => a !== item) : [...prev, item]
     )
   }
+  const amenityOptions = Array.from(new Set([...ALL_AMENITIES, ...amenities]))
 
-  // Adicionar imagens via file input
+  // === Image handlers ===
   const handleFilesSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
@@ -148,11 +205,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
       file,
     }))
     setImageEntries((prev) => [...prev, ...newEntries])
-    // Se não tinha capa, definir a primeira
-    if (imageEntries.length === 0 && newEntries.length > 0) {
-      setCoverIndex(0)
-    }
-    // Reset input para permitir selecionar o mesmo arquivo
+    if (imageEntries.length === 0 && newEntries.length > 0) setCoverIndex(0)
     e.target.value = ""
   }
 
@@ -160,10 +213,8 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
     setImageEntries((prev) => {
       const entry = prev[index]
       if (entry.type === "file") URL.revokeObjectURL(entry.url)
-      const next = prev.filter((_, i) => i !== index)
-      return next
+      return prev.filter((_, i) => i !== index)
     })
-    // Ajustar coverIndex
     if (index === coverIndex) {
       setCoverIndex(0)
     } else if (index < coverIndex) {
@@ -171,12 +222,13 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
     }
   }
 
+  // === Submit (flatten) ===
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSaving(true)
 
     try {
-      // Step 1: Upload novas imagens (type === "file") para o Supabase
+      // Upload novas imagens
       const filesToUpload = imageEntries.filter((e) => e.type === "file")
       const existingUrls = imageEntries.filter((e) => e.type === "url").map((e) => e.url)
 
@@ -187,17 +239,13 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
           filesToUpload.map((entry) => uploadImageToSupabase(entry.file!))
         )
         const failed = results.filter((r) => r === null).length
-        if (failed > 0) {
-          toast.error(`${failed} imagem(ns) falharam no upload`)
-        }
+        if (failed > 0) toast.error(`${failed} imagem(ns) falharam no upload`)
         uploadedUrls = results.filter((r): r is string => r !== null)
       }
 
-      // Montar array final de imagens: capa primeiro
+      // Montar array final com capa na posição 0
       const allUrls = [...existingUrls, ...uploadedUrls]
-      // Reordenar para a capa ficar na posição 0
       if (coverIndex > 0 && coverIndex < imageEntries.length) {
-        // Pegar a URL da capa do estado original
         const coverEntry = imageEntries[coverIndex]
         const coverUrl = coverEntry.type === "url"
           ? coverEntry.url
@@ -209,22 +257,47 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
         }
       }
 
-      // Step 2: Montar payload
+      // Montar payload flat
       setSaveLabel("Salvando sala...")
       const payload: RoomPayload = {
         name,
         description,
+        floor,
+        inventory,
+        amenities,
         capacity: Number(capacity),
-        min_hours_weekday: Number(minHoursWeekday),
-        min_hours_weekend: Number(minHoursSaturday),
-        price_per_hour_weekday: Number(weekdayPrice),
-        price_per_hour_weekend: Number(saturdayPrice),
         cleaning_buffer: Number(cleaningBuffer),
         status,
         images: allUrls,
       }
 
-      // Step 3: POST ou PATCH
+      // Super Admin envia campos de preço
+      if (isSuperAdmin) {
+        // Franquias
+        payload.min_hours_wd = Number(minHoursWd)
+        payload.min_hours_we = Number(minHoursWe)
+        // Dias úteis — base + extra
+        payload.price_morning_wd = Number(priceMorningWd)
+        payload.extra_hour_morning_wd = Number(extraMorningWd)
+        payload.price_afternoon_wd = Number(priceAfternoonWd)
+        payload.extra_hour_afternoon_wd = Number(extraAfternoonWd)
+        payload.price_night_wd = Number(priceNightWd)
+        payload.extra_hour_night_wd = Number(extraNightWd)
+        // Fins de semana — base + extra
+        payload.price_morning_we = Number(priceMorningWe)
+        payload.extra_hour_morning_we = Number(extraMorningWe)
+        payload.price_afternoon_we = Number(priceAfternoonWe)
+        payload.extra_hour_afternoon_we = Number(extraAfternoonWe)
+        payload.price_night_we = Number(priceNightWe)
+        payload.extra_hour_night_we = Number(extraNightWe)
+        // Montagem
+        payload.allows_assembly = allowsAssembly
+        if (allowsAssembly) {
+          payload.assembly_half_price = Number(assemblyHalfPrice)
+          payload.assembly_full_price = Number(assemblyFullPrice)
+        }
+      }
+
       const url = editingRoom
         ? `${API_BASE_URL}/webhook/59aa012a-1f02-424f-9ba5-90cea11a1468/api/spaces/${editingRoom.id}`
         : `${API_BASE_URL}/webhook/api/spaces`
@@ -255,8 +328,46 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
 
   if (!open) return null
 
-  // Lista de amenidades: unir as conhecidas com as vindas da API
-  const amenityOptions = Array.from(new Set([...ALL_AMENITIES, ...amenities]))
+  const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
+    { id: "operacional", label: "Informacoes", icon: <AlignLeft className="w-4 h-4" /> },
+    ...(isSuperAdmin
+      ? [{ id: "precificacao" as TabId, label: "Precificacao", icon: <CreditCard className="w-4 h-4" /> }]
+      : []),
+  ]
+
+  // Helper: linha da grid de turnos (usado em Dias Úteis e Fins de Semana)
+  const ShiftRow = ({ icon, label, baseValue, onBaseChange, extraValue, onExtraChange }: {
+    icon: React.ReactNode
+    label: string
+    baseValue: string
+    onBaseChange: (v: string) => void
+    extraValue: string
+    onExtraChange: (v: string) => void
+  }) => (
+    <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+      <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+        {icon} {label}
+      </div>
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        value={baseValue}
+        onChange={(e) => onBaseChange(e.target.value)}
+        className={INPUT_CLASS}
+        placeholder="0.00"
+      />
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        value={extraValue}
+        onChange={(e) => onExtraChange(e.target.value)}
+        className={INPUT_CLASS}
+        placeholder="0.00"
+      />
+    </div>
+  )
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -264,16 +375,36 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
       <div className="w-full max-w-2xl bg-white h-full shadow-2xl relative z-50 flex flex-col animate-in slide-in-from-right duration-300">
         <form onSubmit={handleSubmit} className="flex flex-col h-full">
           {/* Header */}
-          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-            <div>
-              <h3 className="text-xl font-bold text-slate-800">
-                {editingRoom ? `Editando: ${editingRoom.name}` : "Cadastrar Nova Sala"}
-              </h3>
-              <p className="text-sm text-slate-500">Preencha as informacoes do espaco.</p>
+          <div className="px-6 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold text-slate-800">
+                  {editingRoom ? `Editando: ${editingRoom.name}` : "Cadastrar Nova Sala"}
+                </h3>
+                <p className="text-sm text-slate-500">Preencha as informacoes do espaco.</p>
+              </div>
+              <button type="button" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <button type="button" onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-200">
-              <X className="w-5 h-5" />
-            </button>
+
+            {/* Tabs */}
+            <div className="flex gap-1 mt-4">
+              {tabs.map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                    activeTab === tab.id
+                      ? "bg-white text-[#184689] border border-slate-200 border-b-white -mb-px relative z-10"
+                      : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                  }`}
+                >
+                  {tab.icon} {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Body */}
@@ -292,252 +423,370 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
               </div>
             ) : (
               <>
-                {/* Imagens */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
-                    <ImageIcon className="w-4 h-4" /> Galeria de Imagens
-                  </h4>
+                {/* ============================================ */}
+                {/* ABA 1: INFORMAÇÕES OPERACIONAIS              */}
+                {/* ============================================ */}
+                {activeTab === "operacional" && (
+                  <>
+                    {/* Galeria de Imagens */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4" /> Galeria de Imagens
+                      </h4>
 
-                  {imageEntries.length > 0 ? (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {imageEntries.map((entry, idx) => (
-                        <div key={`${entry.url}-${idx}`} className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-video bg-slate-100">
-                          <img src={entry.url} alt="" className="w-full h-full object-cover" />
-                          {/* Badge de tipo */}
-                          {entry.type === "file" && (
-                            <div className="absolute top-2 right-2 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
-                              NOVA
+                      {imageEntries.length > 0 ? (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {imageEntries.map((entry, idx) => (
+                            <div key={`${entry.url}-${idx}`} className="relative group rounded-lg overflow-hidden border border-slate-200 aspect-video bg-slate-100">
+                              <img src={entry.url} alt="" className="w-full h-full object-cover" />
+                              {entry.type === "file" && (
+                                <div className="absolute top-2 right-2 bg-amber-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded">
+                                  NOVA
+                                </div>
+                              )}
+                              {coverIndex === idx && (
+                                <div className="absolute top-2 left-2 bg-[#184689] text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                                  CAPA
+                                </div>
+                              )}
+                              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                                {coverIndex !== idx && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setCoverIndex(idx)}
+                                    title="Definir como capa"
+                                    className="p-2 bg-white rounded-full text-amber-500 hover:bg-amber-50 shadow-sm"
+                                  >
+                                    <Star className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => removeImage(idx)}
+                                  title="Remover imagem"
+                                  className="p-2 bg-white rounded-full text-red-500 hover:bg-red-50 shadow-sm"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-8 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
+                          <ImageOff className="w-8 h-8 mb-2" />
+                          <p className="text-sm">Nenhuma imagem cadastrada</p>
+                        </div>
+                      )}
+
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleFilesSelected}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium border-2 border-dashed border-slate-300 text-slate-600 rounded-lg hover:border-[#184689] hover:text-[#184689] transition-colors"
+                      >
+                        <Upload className="w-4 h-4" /> Selecionar Imagens
+                      </button>
+                    </div>
+
+                    {/* Informações Básicas */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <AlignLeft className="w-4 h-4" /> Informacoes Basicas
+                      </h4>
+                      <div>
+                        <label className={LABEL_CLASS}>Nome do Espaco</label>
+                        <input
+                          type="text"
+                          required
+                          value={name}
+                          onChange={(e) => setName(e.target.value)}
+                          className={INPUT_CLASS}
+                          placeholder="Ex: Sala de Reunioes 2"
+                        />
+                      </div>
+                      <div>
+                        <label className={LABEL_CLASS}>Descricao</label>
+                        <textarea
+                          value={description}
+                          onChange={(e) => setDescription(e.target.value)}
+                          rows={2}
+                          className={`${INPUT_CLASS} resize-none`}
+                          placeholder="Descricao do espaco..."
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className={LABEL_CLASS}>Capacidade Maxima (Pessoas)</label>
+                          <input
+                            type="number"
+                            required
+                            value={capacity}
+                            onChange={(e) => setCapacity(e.target.value)}
+                            className={INPUT_CLASS}
+                            placeholder="Ex: 20"
+                          />
+                        </div>
+                        <div>
+                          <label className={LABEL_CLASS}>Tempo de Limpeza (min)</label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            value={cleaningBuffer}
+                            onChange={(e) => setCleaningBuffer(e.target.value)}
+                            className={INPUT_CLASS}
+                            placeholder="Ex: 30"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className={LABEL_CLASS}>
+                            <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> Andar</span>
+                          </label>
+                          <select
+                            value={floor}
+                            onChange={(e) => setFloor(e.target.value)}
+                            className={INPUT_CLASS}
+                          >
+                            {FLOOR_OPTIONS.map((opt) => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className={LABEL_CLASS}>Status</label>
+                          <select
+                            value={status}
+                            onChange={(e) => setStatus(e.target.value)}
+                            className={INPUT_CLASS}
+                          >
+                            <option value="Disponível">Disponivel</option>
+                            <option value="Indisponível">Indisponivel / Manutencao</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Comodidades (Amenities) */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <Tag className="w-4 h-4" /> Comodidades
+                      </h4>
+                      <div className="grid grid-cols-2 gap-2">
+                        {amenityOptions.map((item) => (
+                          <label
+                            key={item}
+                            className={`flex items-center gap-2 text-sm px-3 py-2 rounded cursor-pointer border transition-colors ${
+                              amenities.includes(item)
+                                ? "bg-blue-50 border-blue-200 text-[#184689] font-medium"
+                                : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={amenities.includes(item)}
+                              onChange={() => toggleAmenity(item)}
+                              className="rounded text-[#184689] focus:ring-[#184689]"
+                            />{" "}
+                            {item}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Inventário */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <Package className="w-4 h-4" /> Inventario
+                      </h4>
+                      <div>
+                        <label className={LABEL_CLASS}>Equipamentos e Infraestrutura</label>
+                        <textarea
+                          value={inventory}
+                          onChange={(e) => setInventory(e.target.value)}
+                          rows={4}
+                          className={`${INPUT_CLASS} resize-none`}
+                          placeholder="Ex: 1 Projetor Epson, 50 Cadeiras, 1 Mesa de Som, 2 Microfones..."
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ============================================ */}
+                {/* ABA 2: PRECIFICAÇÃO (Super Admin only)       */}
+                {/* ============================================ */}
+                {activeTab === "precificacao" && isSuperAdmin && (
+                  <>
+                    {/* Turnos — Dias Úteis */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <CreditCard className="w-4 h-4" /> Dias Uteis (Seg-Sex)
+                      </h4>
+
+                      {/* Header da grid */}
+                      <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Turno</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Valor Base (R$)</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Hora Extra (R$)</div>
+                      </div>
+
+                      <ShiftRow
+                        icon={<Sun className="w-4 h-4 text-amber-500" />}
+                        label="Manha"
+                        baseValue={priceMorningWd} onBaseChange={setPriceMorningWd}
+                        extraValue={extraMorningWd} onExtraChange={setExtraMorningWd}
+                      />
+                      <ShiftRow
+                        icon={<Sunset className="w-4 h-4 text-orange-500" />}
+                        label="Tarde"
+                        baseValue={priceAfternoonWd} onBaseChange={setPriceAfternoonWd}
+                        extraValue={extraAfternoonWd} onExtraChange={setExtraAfternoonWd}
+                      />
+                      <ShiftRow
+                        icon={<Moon className="w-4 h-4 text-indigo-500" />}
+                        label="Noite"
+                        baseValue={priceNightWd} onBaseChange={setPriceNightWd}
+                        extraValue={extraNightWd} onExtraChange={setExtraNightWd}
+                      />
+
+                      {/* Franquia */}
+                      <div className="pt-3 border-t border-slate-100">
+                        <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+                          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                            <Clock className="w-4 h-4 text-slate-400" /> Franquia
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              min="1"
+                              value={minHoursWd}
+                              onChange={(e) => setMinHoursWd(e.target.value)}
+                              className={INPUT_CLASS}
+                              placeholder="4"
+                            />
+                          </div>
+                          <div className="text-xs text-slate-400 pl-1">horas incluidas</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Turnos — Fins de Semana */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <CreditCard className="w-4 h-4" /> Fins de Semana (Sab-Dom)
+                      </h4>
+
+                      {/* Header da grid */}
+                      <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Turno</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Valor Base (R$)</div>
+                        <div className="text-[10px] font-bold uppercase text-slate-400">Hora Extra (R$)</div>
+                      </div>
+
+                      <ShiftRow
+                        icon={<Sun className="w-4 h-4 text-amber-500" />}
+                        label="Manha"
+                        baseValue={priceMorningWe} onBaseChange={setPriceMorningWe}
+                        extraValue={extraMorningWe} onExtraChange={setExtraMorningWe}
+                      />
+                      <ShiftRow
+                        icon={<Sunset className="w-4 h-4 text-orange-500" />}
+                        label="Tarde"
+                        baseValue={priceAfternoonWe} onBaseChange={setPriceAfternoonWe}
+                        extraValue={extraAfternoonWe} onExtraChange={setExtraAfternoonWe}
+                      />
+                      <ShiftRow
+                        icon={<Moon className="w-4 h-4 text-indigo-500" />}
+                        label="Noite"
+                        baseValue={priceNightWe} onBaseChange={setPriceNightWe}
+                        extraValue={extraNightWe} onExtraChange={setExtraNightWe}
+                      />
+
+                      {/* Franquia */}
+                      <div className="pt-3 border-t border-slate-100">
+                        <div className="grid grid-cols-[120px_1fr_1fr] gap-3 items-center">
+                          <div className="flex items-center gap-1.5 text-sm font-medium text-slate-700">
+                            <Clock className="w-4 h-4 text-slate-400" /> Franquia
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              min="1"
+                              value={minHoursWe}
+                              onChange={(e) => setMinHoursWe(e.target.value)}
+                              className={INPUT_CLASS}
+                              placeholder="4"
+                            />
+                          </div>
+                          <div className="text-xs text-slate-400 pl-1">horas incluidas</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Montagem */}
+                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
+                      <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
+                        <Wrench className="w-4 h-4" /> Montagem
+                      </h4>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium text-slate-700">Permitir Taxa de Montagem</p>
+                          <p className="text-xs text-slate-500">Habilite para cobrar montagem/desmontagem do espaco.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setAllowsAssembly((prev) => !prev)}
+                          className="shrink-0"
+                        >
+                          {allowsAssembly ? (
+                            <ToggleRight className="w-10 h-10 text-[#184689]" />
+                          ) : (
+                            <ToggleLeft className="w-10 h-10 text-slate-300" />
                           )}
-                          {/* Cover badge */}
-                          {coverIndex === idx && (
-                            <div className="absolute top-2 left-2 bg-[#184689] text-white text-[10px] font-bold px-2 py-0.5 rounded">
-                              CAPA
-                            </div>
-                          )}
-                          {/* Overlay actions */}
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
-                            {coverIndex !== idx && (
-                              <button
-                                type="button"
-                                onClick={() => setCoverIndex(idx)}
-                                title="Definir como capa"
-                                className="p-2 bg-white rounded-full text-amber-500 hover:bg-amber-50 shadow-sm"
-                              >
-                                <Star className="w-4 h-4" />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              onClick={() => removeImage(idx)}
-                              title="Remover imagem"
-                              className="p-2 bg-white rounded-full text-red-500 hover:bg-red-50 shadow-sm"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                        </button>
+                      </div>
+
+                      {allowsAssembly && (
+                        <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                          <div>
+                            <label className={LABEL_CLASS}>Meio Periodo (R$)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={assemblyHalfPrice}
+                              onChange={(e) => setAssemblyHalfPrice(e.target.value)}
+                              className={INPUT_CLASS}
+                              placeholder="200.00"
+                            />
+                          </div>
+                          <div>
+                            <label className={LABEL_CLASS}>Periodo Completo (R$)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={assemblyFullPrice}
+                              onChange={(e) => setAssemblyFullPrice(e.target.value)}
+                              className={INPUT_CLASS}
+                              placeholder="400.00"
+                            />
                           </div>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  ) : (
-                    <div className="flex flex-col items-center justify-center py-8 text-slate-400 bg-slate-50 rounded-lg border border-dashed border-slate-300">
-                      <ImageOff className="w-8 h-8 mb-2" />
-                      <p className="text-sm">Nenhuma imagem cadastrada</p>
-                    </div>
-                  )}
-
-                  {/* Upload de arquivos */}
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFilesSelected}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-3 text-sm font-medium border-2 border-dashed border-slate-300 text-slate-600 rounded-lg hover:border-[#184689] hover:text-[#184689] transition-colors"
-                  >
-                    <Upload className="w-4 h-4" /> Selecionar Imagens
-                  </button>
-                </div>
-
-                {/* Info Basica */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
-                    <AlignLeft className="w-4 h-4" /> Informacoes Basicas
-                  </h4>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                      Nome do Espaco
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                      placeholder="Ex: Sala de Reunioes 2"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                      Descricao
-                    </label>
-                    <textarea
-                      value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      rows={2}
-                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689] resize-none"
-                      placeholder="Descricao do espaco..."
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                        Capacidade Maxima (Pessoas)
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        value={capacity}
-                        onChange={(e) => setCapacity(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                        placeholder="Ex: 20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                        Tempo de Limpeza (min)
-                      </label>
-                      <input
-                        type="number"
-                        required
-                        min="0"
-                        value={cleaningBuffer}
-                        onChange={(e) => setCleaningBuffer(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                        placeholder="Ex: 30"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                        Status
-                      </label>
-                      <select
-                        value={status}
-                        onChange={(e) => setStatus(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                      >
-                        <option value="Disponível">Disponivel</option>
-                        <option value="Indisponível">Indisponivel / Manutencao</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Precificacao */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
-                    <CreditCard className="w-4 h-4" /> Precificacao
-                  </h4>
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                      <p className="text-sm font-bold text-slate-800">Dias de Semana (Seg-Sex)</p>
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                          Preco por Hora (R$)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          disabled={!isSuperAdmin}
-                          value={weekdayPrice}
-                          onChange={(e) => setWeekdayPrice(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                          placeholder="Ex: 150.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                          Minimo de Horas
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={minHoursWeekday}
-                          onChange={(e) => setMinHoursWeekday(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-3 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                      <p className="text-sm font-bold text-slate-800">Finais de Semana (Sab)</p>
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                          Preco por Hora (R$)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          disabled={!isSuperAdmin}
-                          value={saturdayPrice}
-                          onChange={(e) => setSaturdayPrice(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689] disabled:bg-slate-100 disabled:text-slate-500 disabled:cursor-not-allowed"
-                          placeholder="Ex: 200.00"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-500 mb-1.5">
-                          Minimo de Horas
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={minHoursSaturday}
-                          onChange={(e) => setMinHoursSaturday(e.target.value)}
-                          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#184689]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Infraestrutura */}
-                <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
-                  <h4 className="font-bold text-slate-700 mb-2 border-b pb-2 flex items-center gap-2">
-                    <Tag className="w-4 h-4" /> Infraestrutura
-                  </h4>
-                  <div>
-                    <label className="block text-xs font-bold uppercase text-slate-500 mb-2">
-                      Amenidades
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {amenityOptions.map((item) => (
-                        <label
-                          key={item}
-                          className={`flex items-center gap-2 text-sm px-3 py-2 rounded cursor-pointer border transition-colors ${
-                            amenities.includes(item)
-                              ? "bg-blue-50 border-blue-200 text-[#184689] font-medium"
-                              : "bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={amenities.includes(item)}
-                            onChange={() => toggleAmenity(item)}
-                            className="rounded text-[#184689] focus:ring-[#184689]"
-                          />{" "}
-                          {item}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -564,7 +813,7 @@ export function RoomModal({ open, editingRoom, onClose, onSaved, isSuperAdmin = 
                 </>
               ) : editingRoom ? (
                 <>
-                  <Save className="w-4 h-4" /> Salvar Regras
+                  <Save className="w-4 h-4" /> Salvar Alteracoes
                 </>
               ) : (
                 <>

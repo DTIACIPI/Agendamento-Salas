@@ -11,7 +11,9 @@ import { authFetch } from "@/lib/auth/auth-fetch"
 import type { BookingDetail } from "@/lib/types"
 
 const DETAIL_BASE = `${API_BASE_URL}/webhook/details-booking-webhook/api/bookings`
-const EDIT_BASE = `${API_BASE_URL}/webhook/edit-booking-dossier-webhook/api/bookings`
+const EDIT_BASE = `${API_BASE_URL}/webhook/533b9ad5-25db-4194-802d-667c7637e919/api/bookings`
+
+const INTERNAL_TYPES = ["Cessão", "Uso Interno", "Curso"]
 
 interface BookingDossierProps {
   bookingId: string | null
@@ -97,12 +99,6 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          companyData: {
-            razaoSocial: draft.razao_social,
-            ie: draft.inscricao_estadual || "",
-            cep: (draft.cep || "").replace(/\D/g, ""),
-            endereco: draft.endereco || "",
-          },
           responsavelData: {
             nome: draft.user_name,
             email: draft.user_email,
@@ -122,8 +118,18 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
         }),
       })
       if (!res.ok) throw new Error("Falha ao salvar alteracoes")
+
+      // Se o status mudou, chamar a rota dedicada de status
+      if (draft.status !== booking?.status) {
+        const statusRes = await authFetch(`${API_BASE_URL}/webhook/e8bca4a7-1d71-4adb-8c0f-ed0e96d1383b/api/bookings/${bookingId}/status`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: draft.status }),
+        })
+        if (!statusRes.ok) throw new Error("Falha ao atualizar status")
+      }
+
       toast.success("Reserva atualizada com sucesso!")
-      // Salva de volta no formato da API (ponto decimal) para exibição correta
       const finalAmount = isSuperAdmin
         ? draft.total_amount.replace(",", ".")
         : booking?.total_amount ?? draft.total_amount.replace(",", ".")
@@ -139,18 +145,24 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
     }
   }
 
-  const handleStatusChange = async (newStatus: "Confirmada" | "Cancelada") => {
+  const handleStatusChange = async (newStatus: string) => {
     if (!bookingId) return
     const action = newStatus === "Confirmada" ? "approve" : "reject"
     setStatusAction(action)
     try {
-      const res = await authFetch(`${API_BASE_URL}/webhook/31a49c3a-2924-4bd3-85b9-e51b34e6fd39/api/bookings/${bookingId}/status`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/e8bca4a7-1d71-4adb-8c0f-ed0e96d1383b/api/bookings/${bookingId}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       })
       if (!res.ok) throw new Error("Falha ao atualizar status")
-      toast.success(newStatus === "Confirmada" ? "Reserva aprovada!" : "Reserva rejeitada.")
+      const labels: Record<string, string> = {
+        Confirmada: "Reserva aprovada!",
+        Cancelada: "Reserva rejeitada.",
+        Concluída: "Reserva marcada como concluida!",
+        Perdida: "Reserva marcada como perdida.",
+      }
+      toast.success(labels[newStatus] ?? "Status atualizado!")
       onStatusChanged()
       onClose()
     } catch (error) {
@@ -165,6 +177,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
 
   const current = isEditing ? draft : booking
   const status = current?.status ?? "Pendente"
+  const isInternal = INTERNAL_TYPES.includes(current?.booking_type ?? "")
 
   const formatSlots = (slots: BookingDetail["horarios_reservados"]) => {
     if (!slots || slots.length === 0) return "Sem horarios"
@@ -172,7 +185,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
       const date = new Date(s.booking_date + "T00:00:00")
       const formatted = date.toLocaleDateString("pt-BR")
       const start = s.start_time?.substring(0, 5) ?? ""
-      const end = s.end_time?.substring(0, 5) ?? ""
+      const end = (s.event_end_time ?? s.end_time)?.substring(0, 5) ?? ""
       return `${formatted} ${start}–${end}`
     }).join(" | ")
   }
@@ -206,7 +219,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {booking && !isLoading && !isEditing && booking.status !== "Confirmada" && booking.status !== "Cancelada" && (
+            {booking && !isLoading && !isEditing && booking.status !== "Cancelada" && booking.status !== "Concluída" && booking.status !== "Perdida" && (
               <button
                 onClick={startEditing}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-[#184689] bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
@@ -248,51 +261,85 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
             <DossierSkeleton />
           ) : current ? (
             <>
-              {/* Status + Valor */}
+              {/* Status + Tipo + Valor */}
               <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Status da Reserva</p>
-                  <StatusBadge status={status} />
-                </div>
-                <div className="text-right">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
-                  {isEditing && isSuperAdmin ? (
-                    <div className="flex items-center gap-1 justify-end">
-                      <span className="text-lg font-black text-[#184689]">R$</span>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        value={draft?.total_amount ?? ""}
-                        onChange={(e) => {
-                          const v = e.target.value.replace(/[^\d,]/g, "")
-                          updateDraft("total_amount", v)
-                        }}
-                        placeholder="2500,00"
-                        className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-32 focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-blue-300"
-                      />
+                <div className="flex flex-col gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">Status da Reserva</p>
+                    <div className="flex items-center gap-3">
+                      <StatusBadge status={isEditing ? (draft?.status ?? status) : status} />
+                      {isEditing && (draft?.status ?? status) !== "Perdida" && (
+                        <label className="flex items-center gap-1.5 cursor-pointer group">
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={() => updateDraft("status", "Perdida")}
+                            className="w-3.5 h-3.5 rounded border-rose-300 text-rose-600 focus:ring-rose-200 cursor-pointer"
+                          />
+                          <span className="text-xs text-rose-500 group-hover:text-rose-700 font-medium transition-colors">Marcar como perdida</span>
+                        </label>
+                      )}
+                      {isEditing && (draft?.status ?? status) === "Perdida" && (
+                        <button
+                          type="button"
+                          onClick={() => updateDraft("status", booking?.status ?? "Pre-reserva")}
+                          className="text-xs text-slate-500 hover:text-[#184689] font-medium underline underline-offset-2 transition-colors"
+                        >
+                          Desfazer
+                        </button>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-2xl font-black text-[#184689] leading-none">
-                      {formatAmount(current.total_amount)}
-                    </p>
+                  </div>
+                  {current.booking_type && (
+                    <div>
+                      <p className="text-xs font-bold text-slate-400 uppercase mb-1">Tipo</p>
+                      <span className="text-sm font-semibold text-slate-700">{current.booking_type}</span>
+                    </div>
                   )}
                 </div>
+                {!isInternal && (
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-slate-400 uppercase mb-1">Valor Final</p>
+                    {isEditing && isSuperAdmin ? (
+                      <div className="flex items-center gap-1 justify-end">
+                        <span className="text-lg font-black text-[#184689]">R$</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={draft?.total_amount ?? ""}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/[^\d,]/g, "")
+                            updateDraft("total_amount", v)
+                          }}
+                          placeholder="2500,00"
+                          className="text-xl font-black text-[#184689] text-right bg-blue-50 border border-blue-200 rounded px-2 py-1 w-32 focus:outline-none focus:ring-2 focus:ring-blue-300 placeholder:text-blue-300"
+                        />
+                      </div>
+                    ) : (
+                      <p className="text-2xl font-black text-[#184689] leading-none">
+                        {formatAmount(current.total_amount)}
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Dados da Empresa */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
-                  <Building2 className="w-5 h-5 text-slate-500" />
-                  <h3 className="font-bold text-slate-800">Dados da Empresa</h3>
+              {/* Dados da Empresa — oculto para eventos internos */}
+              {!isInternal && (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+                    <Building2 className="w-5 h-5 text-slate-500" />
+                    <h3 className="font-bold text-slate-800">Dados da Empresa</h3>
+                  </div>
+                  <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
+                    <EditableField label="Razao Social" value={current.razao_social} field="razao_social" span2 bold editing={false} onChange={updateDraft} />
+                    <EditableField label="CNPJ" value={current.cnpj} field="cnpj" mono editing={false} onChange={updateDraft} />
+                    <EditableField label="Inscricao Estadual" value={current.inscricao_estadual || "Isento"} field="inscricao_estadual" editing={false} onChange={updateDraft} />
+                    <EditableField label="CEP" value={current.cep || ""} field="cep" editing={false} onChange={updateDraft} />
+                    <EditableField label="Endereco" value={current.endereco || ""} field="endereco" span2 editing={false} onChange={updateDraft} />
+                  </div>
                 </div>
-                <div className="p-4 grid grid-cols-2 gap-y-4 gap-x-6 text-sm">
-                  <EditableField label="Razao Social" value={current.razao_social} field="razao_social" span2 bold editing={isEditing} onChange={updateDraft} />
-                  <EditableField label="CNPJ" value={current.cnpj} field="cnpj" mono editing={isEditing} onChange={updateDraft} />
-                  <EditableField label="Inscricao Estadual" value={current.inscricao_estadual || "Isento"} field="inscricao_estadual" editing={isEditing} onChange={updateDraft} />
-                  <EditableField label="CEP" value={current.cep || ""} field="cep" editing={isEditing} onChange={updateDraft} />
-                  <EditableField label="Endereco" value={current.endereco || ""} field="endereco" span2 editing={isEditing} onChange={updateDraft} />
-                </div>
-              </div>
+              )}
 
               {/* Responsavel */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -317,7 +364,9 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                   <EditableField label="Nome do Evento" value={current.event_name} field="event_name" span2 bold editing={isEditing} onChange={updateDraft} />
                   <EditableField label="Finalidade" value={current.event_purpose || ""} field="event_purpose" span2 editing={isEditing} onChange={updateDraft} />
                   <EditableField label="Participantes" value={current.estimated_attendees ? String(current.estimated_attendees) : ""} field="estimated_attendees" editing={isEditing} onChange={(f, v) => updateDraft(f, v ? Number(v) : null)} />
-                  <EditableField label="Forma de Pagamento" value={current.payment_method || ""} field="payment_method" editing={isEditing} onChange={updateDraft} />
+                  {!isInternal && (
+                    <EditableField label="Forma de Pagamento" value={current.payment_method || ""} field="payment_method" editing={isEditing} onChange={updateDraft} />
+                  )}
 
                   {/* Horarios — somente leitura */}
                   <div className="col-span-2 bg-blue-50 p-3 rounded border border-blue-100">
@@ -331,8 +380,8 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                 </div>
               </div>
 
-              {/* Financeiro */}
-              {(current.coupon_code || current.coupon_discount_amount) && (
+              {/* Financeiro — oculto para eventos internos */}
+              {!isInternal && (current.coupon_code || current.coupon_discount_amount) && (
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                   <div className="bg-slate-100 px-4 py-3 border-b border-slate-200 flex items-center gap-2">
                     <DollarSign className="w-5 h-5 text-slate-500" />
@@ -352,8 +401,8 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
           )}
         </div>
 
-        {/* Footer */}
-        {current && !isLoading && !isEditing && (
+        {/* Footer — sem ações para eventos internos */}
+        {current && !isLoading && !isEditing && !isInternal && (
           <div className="p-4 border-t border-slate-200 bg-white shrink-0">
             <div className="grid grid-cols-2 gap-3">
               {status === "Pendente" || status === "Pre-reserva" ? (
@@ -385,10 +434,11 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                     Gerar Contrato
                   </button>
                   <button
-                    className="w-full py-2.5 bg-slate-100 text-slate-600 border border-slate-200 rounded-lg font-medium text-sm hover:bg-slate-200 transition-colors"
-                    onClick={onClose}
+                    disabled={statusAction !== null}
+                    onClick={() => handleStatusChange("Concluída")}
+                    className="w-full py-2.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg font-medium text-sm hover:bg-sky-100 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                   >
-                    Fechar Dossie
+                    Concluir
                   </button>
                 </>
               ) : (

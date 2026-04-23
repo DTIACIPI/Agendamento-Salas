@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Filter, ChevronLeft, ChevronRight, Search } from "lucide-react"
+import { Filter, ChevronLeft, ChevronRight, Search, Plus } from "lucide-react"
 import { StatusBadge } from "@/components/shared/status-badge"
 import type { BookingListItem, BookingStatus } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
@@ -14,18 +14,25 @@ interface ReservasViewProps {
   perPage: number
   onPageChange: (page: number) => void
   onOpenDossier: (bookingId: string) => void
+  onNewBooking: () => void
 }
+
+const INTERNAL_TYPES = ["Cessão", "Uso Interno", "Curso"]
+
+type TabId = "external" | "internal"
 
 const STATUS_OPTIONS: { label: string; value: BookingStatus | "all" }[] = [
   { label: "Todos", value: "all" },
   { label: "Pre-reserva", value: "Pre-reserva" },
   { label: "Confirmada", value: "Confirmada" },
+  { label: "Concluída", value: "Concluída" },
   { label: "Cancelada", value: "Cancelada" },
+  { label: "Perdida", value: "Perdida" },
   { label: "Pendente", value: "Pendente" },
 ]
 
 function formatEventDate(raw: string | null): string {
-  if (!raw) return "\u2014"
+  if (!raw) return "—"
   const d = new Date(raw.includes(" ") ? raw.replace(" ", "T") : raw)
   if (isNaN(d.getTime())) return raw
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
@@ -33,7 +40,7 @@ function formatEventDate(raw: string | null): string {
 
 function formatAmount(value: number | string): string {
   const n = typeof value === "string" ? Number(value) : value
-  if (!isFinite(n)) return "\u2014"
+  if (!isFinite(n)) return "—"
   return formatCurrency(n)
 }
 
@@ -45,13 +52,18 @@ export function ReservasView({
   perPage,
   onPageChange,
   onOpenDossier,
+  onNewBooking,
 }: ReservasViewProps) {
+  const [activeTab, setActiveTab] = useState<TabId>("external")
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
   const [showFilters, setShowFilters] = useState(false)
 
-  // Filtro local (sobre a página atual retornada pela API)
+  const isInternal = activeTab === "internal"
+
   const filtered = bookings.filter((b) => {
+    const bIsInternal = INTERNAL_TYPES.includes(b.booking_type ?? "")
+    if (isInternal !== bIsInternal) return false
     if (statusFilter !== "all" && b.status !== statusFilter) return false
     if (searchQuery) {
       const q = searchQuery.toLowerCase()
@@ -64,6 +76,11 @@ export function ReservasView({
   })
 
   const totalPages = Math.max(1, Math.ceil(total / perPage))
+
+  const tabs: { id: TabId; label: string }[] = [
+    { id: "external", label: "Locacoes" },
+    { id: "internal", label: "Internos" },
+  ]
 
   return (
     <div className="space-y-4 animate-in fade-in duration-500">
@@ -88,7 +105,30 @@ export function ReservasView({
           >
             <Filter className="w-4 h-4" /> Filtros
           </button>
+          <button
+            onClick={onNewBooking}
+            className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#12356b] transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> Nova Reserva
+          </button>
         </div>
+      </div>
+
+      {/* Abas */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-fit">
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => { setActiveTab(tab.id); setStatusFilter("all"); setSearchQuery("") }}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === tab.id
+                ? "bg-white text-[#184689] shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Painel de filtros */}
@@ -100,7 +140,7 @@ export function ReservasView({
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Nome do evento, empresa ou ID..."
+                placeholder={isInternal ? "Nome do evento ou ID..." : "Nome do evento, empresa ou ID..."}
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
@@ -132,12 +172,24 @@ export function ReservasView({
         <table className="w-full text-left text-sm border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-semibold uppercase text-xs">
-              <th className="px-6 py-4">ID / Empresa</th>
-              <th className="px-6 py-4">Evento</th>
-              <th className="px-6 py-4">Data</th>
-              <th className="px-6 py-4">Valor</th>
-              <th className="px-6 py-4">Status</th>
-              <th className="px-6 py-4 text-right">Acao</th>
+              {isInternal ? (
+                <>
+                  <th className="px-6 py-4">Evento</th>
+                  <th className="px-6 py-4">Tipo</th>
+                  <th className="px-6 py-4">Data</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Acao</th>
+                </>
+              ) : (
+                <>
+                  <th className="px-6 py-4">ID / Empresa</th>
+                  <th className="px-6 py-4">Evento</th>
+                  <th className="px-6 py-4">Data</th>
+                  <th className="px-6 py-4">Valor</th>
+                  <th className="px-6 py-4">Status</th>
+                  <th className="px-6 py-4 text-right">Acao</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-200">
@@ -149,36 +201,64 @@ export function ReservasView({
                   <td className="px-6 py-4"><div className="h-4 w-24 bg-slate-100 rounded animate-pulse" /></td>
                   <td className="px-6 py-4"><div className="h-4 w-20 bg-slate-100 rounded animate-pulse" /></td>
                   <td className="px-6 py-4"><div className="h-5 w-24 bg-slate-100 rounded-full animate-pulse" /></td>
-                  <td className="px-6 py-4 text-right"><div className="h-7 w-24 bg-slate-100 rounded animate-pulse ml-auto" /></td>
+                  {!isInternal && <td className="px-6 py-4 text-right"><div className="h-7 w-24 bg-slate-100 rounded animate-pulse ml-auto" /></td>}
                 </tr>
               ))
             ) : filtered.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-6 py-12 text-center text-slate-500">
+                <td colSpan={isInternal ? 5 : 6} className="px-6 py-12 text-center text-slate-500">
                   Nenhuma reserva encontrada.
                 </td>
               </tr>
             ) : (
               filtered.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50">
-                  <td className="px-6 py-4">
-                    <div className="font-bold text-slate-800">{b.company_name}</div>
-                    <div className="text-slate-500 text-xs">{b.id}</div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-600">{b.event_name}</td>
-                  <td className="px-6 py-4 text-slate-600">{formatEventDate(b.event_date)}</td>
-                  <td className="px-6 py-4 text-slate-700 font-semibold">{formatAmount(b.total_amount)}</td>
-                  <td className="px-6 py-4">
-                    <StatusBadge status={b.status} />
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => onOpenDossier(b.id)}
-                      className="text-[#184689] font-medium hover:underline bg-blue-50 px-3 py-1 rounded-md"
-                    >
-                      Abrir Dossie
-                    </button>
-                  </td>
+                  {isInternal ? (
+                    <>
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{b.event_name}</div>
+                        <div className="text-slate-500 text-xs">{b.id}</div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 border border-violet-200">
+                          {b.booking_type}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{formatEventDate(b.event_date)}</td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={b.status} />
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => onOpenDossier(b.id)}
+                          className="text-[#184689] font-medium hover:underline bg-blue-50 px-3 py-1 rounded-md"
+                        >
+                          Abrir Dossie
+                        </button>
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{b.company_name}</div>
+                        <div className="text-slate-500 text-xs">{b.id}</div>
+                      </td>
+                      <td className="px-6 py-4 text-slate-600">{b.event_name}</td>
+                      <td className="px-6 py-4 text-slate-600">{formatEventDate(b.event_date)}</td>
+                      <td className="px-6 py-4 text-slate-700 font-semibold">{formatAmount(b.total_amount)}</td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={b.status} />
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button
+                          onClick={() => onOpenDossier(b.id)}
+                          className="text-[#184689] font-medium hover:underline bg-blue-50 px-3 py-1 rounded-md"
+                        >
+                          Abrir Dossie
+                        </button>
+                      </td>
+                    </>
+                  )}
                 </tr>
               ))
             )}

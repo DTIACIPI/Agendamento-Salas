@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
-import { cn, formatDateToISO } from "@/lib/utils"
+import { cn, formatDateToISO, API_BASE_URL } from "@/lib/utils"
 import Image from "next/image"
 import { type Room } from "@/components/room-list"
 import type { BookingItem } from "@/app/page"
@@ -14,17 +14,17 @@ interface PricingData {
   success: boolean
   cnpj_consultado: string
   is_associado: boolean
-  porcentagem_desconto: number
-  tempo_associacao: string
+  porcentagem_tier: number
+  porcentagem_cupom: number
   valorTotalGeral: number
   descontoTotalGeral: number
   detalhes: {
     space_name: string
+    horas_cobradas: number
     subtotal: number
-    discount: number
+    taxa_montagem: number
+    descontos: number
     total: number
-    quantidade_reservas: number
-    cleaning_buffer?: number
   }[]
 }
 
@@ -44,6 +44,7 @@ function FormularioContent() {
     discount_value: number
     description?: string
   } | null>(null)
+  const [assemblyByRoom, setAssemblyByRoom] = useState<Record<string, "none" | "half" | "full">>({})
 
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [popup, setPopup] = useState<{ type: "success" | "error"; title: string; description: string } | null>(null)
@@ -125,6 +126,10 @@ function FormularioContent() {
 
         if (parsedPrep.appliedCoupon) {
           setAppliedCoupon(parsedPrep.appliedCoupon)
+        }
+
+        if (parsedPrep.assemblyByRoom) {
+          setAssemblyByRoom(parsedPrep.assemblyByRoom)
         }
 
         if (parsedPrep.company) {
@@ -336,45 +341,34 @@ function FormularioContent() {
 
     setIsSubmitting(true)
 
-    const discountMultiplier = pricingData?.is_associado && pricingData.porcentagem_desconto > 0
-      ? 1 - pricingData.porcentagem_desconto / 100
-      : 1
-
-    // Fator do cupom: percentual aplica a mesma % em cada item
-    const couponMultiplier = appliedCoupon?.discount_type === "percentage"
-      ? 1 - appliedCoupon.discount_value / 100
-      : 1
-
     const requests = cartBookings.map(item => {
-      const priceAfterAssociation = item.price * discountMultiplier
+      const roomName = rooms.find(r => r.id === item.roomId)?.name || ""
+      const roomPricingDetail = pricingData?.detalhes.find(d => d.space_name === roomName)
 
-      // Para cupom fixo, distribui proporcionalmente entre os itens
+      // Usar valores já calculados pela API quando disponíveis
+      const itemSubtotal = roomPricingDetail?.subtotal ?? item.price
+      const itemDesconto = roomPricingDetail?.descontos ?? 0
+      const itemTaxaMontagem = roomPricingDetail?.taxa_montagem ?? 0
+      const subtotalAposDescontoItem = itemSubtotal - itemDesconto
+
+      // Cupom aplica APENAS sobre subtotal das horas, NUNCA sobre taxa_montagem
       let itemCouponDiscount = 0
       if (appliedCoupon) {
         if (appliedCoupon.discount_type === "percentage") {
-          itemCouponDiscount = priceAfterAssociation * (1 - couponMultiplier)
+          itemCouponDiscount = subtotalAposDescontoItem * (appliedCoupon.discount_value / 100)
         } else {
-          // Fixo: proporcional ao peso deste item no total
-          const totalAfterAssociation = cartBookings.reduce((sum, b) => sum + b.price * discountMultiplier, 0)
-          const proportion = totalAfterAssociation > 0 ? priceAfterAssociation / totalAfterAssociation : 0
-          itemCouponDiscount = Math.min(appliedCoupon.discount_value * proportion, priceAfterAssociation)
+          // Fixo: proporcional ao peso deste item no total de horas
+          const totalSubtotalHoras = cartBookings.reduce((sum, b) => {
+            const rn = rooms.find(r => r.id === b.roomId)?.name || ""
+            const rd = pricingData?.detalhes.find(d => d.space_name === rn)
+            return sum + (rd ? rd.subtotal - rd.descontos : b.price)
+          }, 0)
+          const proportion = totalSubtotalHoras > 0 ? subtotalAposDescontoItem / totalSubtotalHoras : 0
+          itemCouponDiscount = Math.min(appliedCoupon.discount_value * proportion, subtotalAposDescontoItem)
         }
       }
 
-      const finalAmount = priceAfterAssociation - itemCouponDiscount
-
-      // Somar cleaning_buffer da sala ao endTime para bloquear o calendário
-      const roomName = rooms.find(r => r.id === item.roomId)?.name || ""
-      const roomPricingDetail = pricingData?.detalhes.find(d => d.space_name === roomName)
-      const bufferMinutes = roomPricingDetail?.cleaning_buffer ?? 0
-      let adjustedEndTime = item.endTime
-      if (bufferMinutes > 0 && item.endTime) {
-        const [h, m] = item.endTime.split(":").map(Number)
-        const totalMin = h * 60 + m + bufferMinutes
-        const endH = String(Math.floor(totalMin / 60)).padStart(2, "0")
-        const endM = String(totalMin % 60).padStart(2, "0")
-        adjustedEndTime = `${endH}:${endM}`
-      }
+      const finalAmount = subtotalAposDescontoItem - itemCouponDiscount + itemTaxaMontagem
 
       const payload = {
         company: {
@@ -391,11 +385,13 @@ function FormularioContent() {
           role: formData.cargoResponsavel,
         },
         booking: {
+          booking_type: "Locação Cliente",
           space_id: item.roomId,
           space_name: roomName,
           date: item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : "",
           startTime: item.startTime,
-          endTime: adjustedEndTime,
+          endTime: item.endTime,
+          requires_assembly: (assemblyByRoom[item.roomId] || "none") !== "none" ? assemblyByRoom[item.roomId] : null,
           event_name: eventDataMap[item.id]?.nomeEvento || "",
           event_purpose: eventDataMap[item.id]?.finalidadeEvento || "",
           estimated_attendees: eventDataMap[item.id]?.participantes ? parseInt(eventDataMap[item.id].participantes) : null,
@@ -408,7 +404,7 @@ function FormularioContent() {
         },
       }
 
-      return fetch("https://acipiapi.eastus.cloudapp.azure.com/webhook/api/bookings", {
+      return fetch(`${API_BASE_URL}/webhook/api/public/bookings`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -448,14 +444,20 @@ function FormularioContent() {
 
   const formatMoney = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-  // Cálculo do desconto do cupom
-  const valorBase = pricingData?.valorTotalGeral ?? 0
+  // Subtotal = soma dos subtotais (horas) de cada sala
+  // Taxa de montagem fica fora do cálculo de cupom
+  const subtotalHoras = pricingData?.detalhes.reduce((sum, d) => sum + d.subtotal, 0) ?? 0
+  const totalTaxaMontagem = pricingData?.detalhes.reduce((sum, d) => sum + (d.taxa_montagem || 0), 0) ?? 0
+  const descontoAssociado = pricingData?.descontoTotalGeral ?? 0
+  const subtotalAposDesconto = subtotalHoras - descontoAssociado
+
+  // Cupom aplica APENAS sobre subtotal das horas, NUNCA sobre taxa_montagem
   const valorDescontoCupom = appliedCoupon
     ? appliedCoupon.discount_type === "percentage"
-      ? valorBase * (appliedCoupon.discount_value / 100)
-      : Math.min(appliedCoupon.discount_value, valorBase)
+      ? subtotalAposDesconto * (appliedCoupon.discount_value / 100)
+      : Math.min(appliedCoupon.discount_value, subtotalAposDesconto)
     : 0
-  const valorFinalComCupom = valorBase - valorDescontoCupom
+  const valorFinalComCupom = subtotalAposDesconto - valorDescontoCupom + totalTaxaMontagem
 
   return (
     <main className="mx-auto w-full max-w-[1920px] flex-1 px-4 py-8 lg:px-8">
@@ -521,21 +523,38 @@ function FormularioContent() {
                         </div>
 
                         {/* Subtotal da Sala Específica */}
-                        {roomPricing && (
+                        {roomPricing ? (
                           <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
                             <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Subtotal ({roomPricing.quantidade_reservas} reserva{roomPricing.quantidade_reservas > 1 ? 's' : ''})</span>
+                              <span>Valor das Horas ({roomPricing.horas_cobradas}h)</span>
                               <span>{formatMoney(roomPricing.subtotal)}</span>
                             </div>
-                            {roomPricing.discount > 0 && (
+                            {roomPricing.descontos > 0 && (
                               <div className="flex justify-between text-xs text-green-600 font-medium">
                                 <span>Desconto Associado</span>
-                                <span>-{formatMoney(roomPricing.discount)}</span>
+                                <span>-{formatMoney(roomPricing.descontos)}</span>
+                              </div>
+                            )}
+                            {roomPricing.taxa_montagem > 0 && (
+                              <div className="flex justify-between text-xs text-muted-foreground">
+                                <span>Taxa de Montagem</span>
+                                <span>{formatMoney(roomPricing.taxa_montagem)}</span>
                               </div>
                             )}
                             <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
                               <span>Total da Sala</span>
                               <span>{formatMoney(roomPricing.total)}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>Estimativa ({roomBookings.length} reserva{roomBookings.length > 1 ? 's' : ''})</span>
+                              <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
+                            </div>
+                            <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
+                              <span>Total da Sala</span>
+                              <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
                             </div>
                           </div>
                         )}
@@ -545,43 +564,60 @@ function FormularioContent() {
                 })}
                 
                 {/* Painel Financeiro Final */}
-                {pricingData && (
+                {pricingData ? (
                   <div className="border-t-2 border-dashed pt-5 mt-2 flex flex-col gap-3">
-                    {pricingData.is_associado && pricingData.porcentagem_desconto > 0 && (
+                    {pricingData.is_associado && pricingData.porcentagem_tier > 0 && (
                       <div className="flex items-start gap-2 bg-green-50 text-green-800 p-3 rounded-md border border-green-200">
                         <CheckCircle2 className="size-4 mt-0.5 shrink-0" />
                         <div className="flex flex-col text-sm">
-                          <span className="font-bold">Desconto de {pricingData.porcentagem_desconto}% aplicado!</span>
-                          <span className="text-xs opacity-90">Empresa associada há {pricingData.tempo_associacao}.</span>
+                          <span className="font-bold">Desconto de {pricingData.porcentagem_tier}% aplicado!</span>
+                          <span className="text-xs opacity-90">Empresa associada à ACIPI.</span>
                         </div>
                       </div>
                     )}
-                    
+
                     <div className="flex flex-col gap-2">
                       <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Valor Original</span>
-                        <span>{formatMoney(pricingData.valorTotalGeral + pricingData.descontoTotalGeral)}</span>
+                        <span>Valor das Horas</span>
+                        <span>{formatMoney(subtotalHoras)}</span>
                       </div>
-                      {pricingData.descontoTotalGeral > 0 && (
+                      {descontoAssociado > 0 && (
                         <div className="flex justify-between text-sm text-green-600 font-medium">
                           <span>Desconto Associado</span>
-                          <span>-{formatMoney(pricingData.descontoTotalGeral)}</span>
+                          <span>-{formatMoney(descontoAssociado)}</span>
                         </div>
                       )}
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Subtotal</span>
-                        <span>{formatMoney(valorBase)}</span>
-                      </div>
                       {appliedCoupon && valorDescontoCupom > 0 && (
                         <div className="flex justify-between items-center text-sm text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100 font-medium">
                           <span>Cupom ({appliedCoupon.code})</span>
                           <span>-{formatMoney(valorDescontoCupom)}</span>
                         </div>
                       )}
+                      {totalTaxaMontagem > 0 && (
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>Taxa de Montagem</span>
+                          <span>{formatMoney(totalTaxaMontagem)}</span>
+                        </div>
+                      )}
                       <div className="flex justify-between items-end border-t pt-3 mt-1">
                         <span className="text-base font-bold text-[#384050]">Valor Final</span>
                         <span className="text-2xl font-black text-primary leading-none">
                           {formatMoney(valorFinalComCupom)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="border-t-2 border-dashed pt-5 mt-2 flex flex-col gap-3">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Estimativa Total</span>
+                        <span>{formatMoney(cartBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
+                      </div>
+                      <div className="flex justify-between items-end border-t pt-3 mt-1">
+                        <span className="text-base font-bold text-[#384050]">Total Estimado</span>
+                        <span className="text-2xl font-black text-primary leading-none">
+                          {formatMoney(cartBookings.reduce((sum, b) => sum + (b.price || 0), 0))}
                         </span>
                       </div>
                     </div>

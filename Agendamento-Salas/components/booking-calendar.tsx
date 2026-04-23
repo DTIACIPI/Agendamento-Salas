@@ -14,6 +14,7 @@ import {
   Users,
   Wifi,
   Monitor,
+  MapPin,
   Plus,
   Trash2,
 
@@ -405,6 +406,14 @@ export function BookingCalendar({
               <Users className="size-3.5 text-primary" />
               <span>Capacidade: {room.capacity} pessoas</span>
             </div>
+
+            {/* Andar */}
+            {room.floor && (
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <MapPin className="size-3.5 text-primary" />
+                <span>{room.floor}</span>
+              </div>
+            )}
 
             {/* Loop das Comodidades do Banco de Dados */}
             {room.amenities && room.amenities.length > 0 ? (

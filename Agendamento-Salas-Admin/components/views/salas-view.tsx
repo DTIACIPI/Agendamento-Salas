@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Edit, ImageOff, Trash2, Loader2 } from "lucide-react"
+import { Plus, Edit, ImageOff, Trash2, Loader2, MapPin, Users } from "lucide-react"
 import { toast } from "sonner"
 import type { Room } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
@@ -9,16 +9,25 @@ import { formatCurrency } from "@/lib/utils"
 interface SalasViewProps {
   rooms: Room[]
   isLoading: boolean
+  isSuperAdmin?: boolean
   onOpenRoomModal?: (room: Room | null) => void
   onDeleteRoom?: (roomId: string) => Promise<void>
 }
 
-function getBasePrice(periods: Room["pricePeriodsWeekday"]): number | null {
-  if (!periods || periods.length === 0) return null
-  return periods[0].price
+function getLowestTurnPrice(pricing: Room["pricing"]): number | null {
+  if (!pricing) return null
+  const prices = [
+    pricing.weekdays?.morning?.base,
+    pricing.weekdays?.afternoon?.base,
+    pricing.weekdays?.night?.base,
+    pricing.weekends?.morning?.base,
+    pricing.weekends?.afternoon?.base,
+    pricing.weekends?.night?.base,
+  ].filter((p): p is number => typeof p === "number" && p > 0)
+  return prices.length > 0 ? Math.min(...prices) : null
 }
 
-export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: SalasViewProps) {
+export function SalasView({ rooms, isLoading, isSuperAdmin, onOpenRoomModal, onDeleteRoom }: SalasViewProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
 
@@ -73,58 +82,73 @@ export function SalasView({ rooms, isLoading, onOpenRoomModal, onDeleteRoom }: S
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {rooms.map((room) => {
-            const weekdayPrice = room.price_per_hour_weekday ?? getBasePrice(room.pricePeriodsWeekday)
-            const saturdayPrice = room.price_per_hour_weekend ?? getBasePrice(room.pricePeriodsSaturday)
+            const isAvailable = room.is_active ?? room.available ?? true
+            const coverImage = room.images?.[0] ?? room.image ?? null
+            const lowestPrice = getLowestTurnPrice(room.pricing)
 
             return (
               <div key={room.id} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden flex flex-col">
                 <div className="h-40 bg-slate-200 relative group">
-                  {room.image ? (
-                    <img src={room.image} alt={room.name} className="w-full h-full object-cover" />
+                  {coverImage ? (
+                    <img src={coverImage} alt={room.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-400">
                       <ImageOff className="w-8 h-8" />
                     </div>
                   )}
-                  <div className="absolute top-3 left-3">
+                  <div className="absolute top-3 left-3 flex gap-2">
                     <span
                       className={`px-2.5 py-1 text-xs font-bold rounded text-white ${
-                        room.available ? "bg-emerald-500" : "bg-red-500"
+                        isAvailable ? "bg-emerald-500" : "bg-red-500"
                       }`}
                     >
-                      {room.available ? "Disponivel" : "Manutencao"}
+                      {isAvailable ? "Disponivel" : "Manutencao"}
                     </span>
                   </div>
+                  {room.floor && (
+                    <div className="absolute top-3 right-3">
+                      <span className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded bg-white/90 text-slate-700 shadow-sm backdrop-blur-sm">
+                        <MapPin className="w-3 h-3" /> {room.floor}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-5 flex flex-col flex-1">
                   <h3 className="text-lg font-bold text-slate-800">{room.name}</h3>
 
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {room.amenities.map((a, i) => (
-                      <span key={i} className="text-[10px] font-semibold uppercase bg-slate-100 text-slate-600 px-2 py-1 rounded">
-                        {a}
-                      </span>
-                    ))}
-                  </div>
+                  {room.amenities && room.amenities.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1">
+                      {room.amenities.map((a, i) => (
+                        <span key={i} className="text-[10px] font-semibold uppercase bg-slate-100 text-slate-600 px-2 py-1 rounded">
+                          {a}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
                   <div className="mt-4 space-y-2 text-sm text-slate-600 flex-1">
                     <div className="flex justify-between border-b border-slate-50 pb-1">
-                      <span>Capacidade:</span>
+                      <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /> Capacidade:</span>
                       <span className="font-semibold">{room.capacity} pax</span>
                     </div>
-                    <div className="flex justify-between border-b border-slate-50 pb-1">
-                      <span>Seg-Sex (/h):</span>
-                      <span className="font-semibold">
-                        {weekdayPrice !== null && weekdayPrice !== undefined ? formatCurrency(weekdayPrice) : "—"}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span>Sabado (/h):</span>
-                      <span className="font-semibold">
-                        {saturdayPrice !== null && saturdayPrice !== undefined ? formatCurrency(saturdayPrice) : "—"}
-                      </span>
-                    </div>
+
+                    {/* Precos - apenas Super Admin */}
+                    {isSuperAdmin && lowestPrice !== null && (
+                      <div className="flex justify-between border-b border-slate-50 pb-1">
+                        <span>Turno:</span>
+                        <span className="font-semibold text-emerald-600">
+                          A partir de {formatCurrency(lowestPrice)}
+                        </span>
+                      </div>
+                    )}
+
+                    {isSuperAdmin && room.pricing?.assembly?.allowed && (
+                      <div className="flex justify-between">
+                        <span>Montagem:</span>
+                        <span className="font-semibold text-amber-600">Permitida</span>
+                      </div>
+                    )}
                   </div>
 
                   {(onOpenRoomModal || onDeleteRoom) && (

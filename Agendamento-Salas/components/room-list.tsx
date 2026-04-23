@@ -2,14 +2,35 @@
 
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback, memo } from "react"
 import Image from "next/image"
-import { Users, CheckCircle2 } from "lucide-react"
+import { Users, CheckCircle2, MapPin } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { cn, API_BASE_URL } from "@/lib/utils"
 
-export interface PricePeriod {
-  startHour: number
-  endHour: number
-  price: number
+// Valor base + hora extra por turno
+export interface ShiftPrice {
+  base: number
+  extra: number
+}
+
+// Estrutura de pricing retornada pelo GET /api/spaces
+export interface RoomPricing {
+  weekdays: {
+    morning: ShiftPrice
+    afternoon: ShiftPrice
+    night: ShiftPrice
+    min_hours: number
+  }
+  weekends: {
+    morning: ShiftPrice
+    afternoon: ShiftPrice
+    night: ShiftPrice
+    min_hours: number
+  }
+  assembly: {
+    allowed: boolean
+    half_price: number
+    full_price: number
+  }
 }
 
 export interface Room {
@@ -20,11 +41,11 @@ export interface Room {
   image: string
   images?: string[]
   amenities: string[]
-  infrastructure?: string[]
-  minHoursWeekday: number // Segunda a sexta
-  minHoursSaturday?: number // Sábado
-  pricePeriodsWeekday: PricePeriod[] // Segunda a sexta
-  pricePeriodsSaturday?: PricePeriod[] // Sábado
+  floor?: string
+  inventory?: string
+  cleaning_buffer?: number
+  pricing?: RoomPricing
+  is_active?: boolean
   available: boolean
 }
 
@@ -55,7 +76,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
     const fetchSpaces = async () => {
       try {
         setIsLoading(true)
-        const response = await fetch(`${API_BASE_URL}/webhook/api/spaces?page=1&limit=10`, {
+        const response = await fetch(`${API_BASE_URL}/webhook/api/public/spaces`, {
           signal: controller.signal,
         })
 
@@ -65,23 +86,26 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
 
         const data = await response.json()
 
-        const rawArray = Array.isArray(data) && data.length > 0 && Array.isArray(data[0].data)
-          ? data[0].data
-          : [];
+        const rawArray = Array.isArray(data?.data)
+          ? data.data
+          : Array.isArray(data) && data.length > 0 && Array.isArray(data[0]?.data)
+            ? data[0].data
+            : [];
 
         const spacesData: Room[] = rawArray.map((apiRoom: any) => ({
             id: apiRoom.id,
             name: apiRoom.name,
-            description: apiRoom.description,
+            description: apiRoom.description || "",
             capacity: apiRoom.capacity,
-            image: apiRoom.image,
+            image: apiRoom.image || (Array.isArray(apiRoom.images) && apiRoom.images[0]) || "",
             images: Array.isArray(apiRoom.images) ? apiRoom.images : (apiRoom.image ? [apiRoom.image] : []),
             amenities: Array.isArray(apiRoom.amenities) ? apiRoom.amenities : [],
-            minHoursWeekday: apiRoom.minHoursWeekday,
-            minHoursSaturday: apiRoom.minHoursSaturday,
-            pricePeriodsWeekday: Array.isArray(apiRoom.pricePeriodsWeekday) ? apiRoom.pricePeriodsWeekday : [],
-            pricePeriodsSaturday: Array.isArray(apiRoom.pricePeriodsSaturday) ? apiRoom.pricePeriodsSaturday : [],
-            available: apiRoom.available === 1 || apiRoom.available === true,
+            floor: apiRoom.floor || null,
+            inventory: apiRoom.inventory || null,
+            cleaning_buffer: apiRoom.cleaning_buffer ?? 30,
+            pricing: apiRoom.pricing || null,
+            is_active: apiRoom.is_active,
+            available: apiRoom.is_active === true || apiRoom.is_active === 1 || apiRoom.available === 1 || apiRoom.available === true,
         }))
         setSpaces(spacesData)
         if (onLoadedSpaces) onLoadedSpaces(spacesData)
@@ -98,7 +122,6 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
   }, [])
 
   // FLIP Step 1 (First): snapshot positions BEFORE reorder
-  // This runs synchronously before React commits the new DOM
   if (selectedRoomId !== prevSelectedRef.current) {
     snapshotRef.current = new Map()
     cardRefsMap.current.forEach((el, id) => {
@@ -113,7 +136,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
     return [selected, ...spaces.filter(r => r.id !== selectedRoomId)]
   }, [spaces, selectedRoomId])
 
-  // FLIP Steps 2-4 (Last, Invert, Play): after DOM update, animate from old to new position
+  // FLIP Steps 2-4 (Last, Invert, Play)
   useLayoutEffect(() => {
     if (selectedRoomId === prevSelectedRef.current) return
     if (snapshotRef.current.size === 0) {
@@ -130,11 +153,9 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
 
       if (Math.abs(deltaY) < 1) return
 
-      // Invert: place element at its old position
       el.style.transform = `translateY(${deltaY}px)`
       el.style.transition = "none"
 
-      // Play: animate back to natural position
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           el.style.transition = "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)"
@@ -186,7 +207,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
             onClick={() => onSelectRoom(room)}
           >
             <div className="flex flex-col sm:flex-row items-stretch">
-              
+
               {/* Container da Imagem */}
               <div className="relative m-3 shrink-0 overflow-hidden rounded-lg bg-gray-100 w-full h-44 sm:h-auto sm:w-[42%] sm:max-w-[320px] aspect-video">
                 <Image
@@ -196,11 +217,18 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
                   className="object-cover"
                   sizes="(max-width: 640px) 100vw, 320px"
                 />
+                {/* Floor badge sobre a imagem */}
+                {room.floor && (
+                  <div className="absolute top-2 right-2 flex items-center gap-1 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded-md shadow-sm text-xs font-semibold text-[#384050]">
+                    <MapPin className="size-3" />
+                    {room.floor}
+                  </div>
+                )}
               </div>
 
               {/* Container de Conteúdo */}
               <div className="flex flex-1 flex-col justify-start p-3 sm:py-3 sm:pr-4 sm:pl-2">
-                
+
                 {/* Badge de Status */}
                 <div
                   className={cn(
@@ -224,7 +252,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
                   {room.description}
                 </p>
 
-                {/* Capacidade e Preço */}
+                {/* Capacidade + Valores */}
                 <div className="mb-3 flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-4 text-sm font-medium text-[#384050]">
                   <div className="flex items-center gap-1.5">
                     <Users className="size-4 text-gray-500" />
@@ -232,7 +260,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
                       Capacidade: Até <span className="font-bold">{room.capacity}</span>
                     </span>
                   </div>
-
+                  <span className="text-xs text-gray-400 italic">Valores calculados por periodo</span>
                 </div>
 
                 {/* Container de Comodidades */}
@@ -241,7 +269,7 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
                     Comodidades
                   </p>
                   <div className="flex flex-wrap gap-1">
-                    {room.amenities.length > 0 ? room.amenities.slice(0, 3).map((amenity) => (
+                    {room.amenities.length > 0 ? room.amenities.slice(0, 4).map((amenity) => (
                       <span
                         key={amenity}
                         className="flex items-center rounded border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm whitespace-nowrap"
@@ -250,6 +278,11 @@ export const RoomList = memo(function RoomList({ selectedRoomId, onSelectRoom, o
                       </span>
                     )) : (
                       <span className="text-[10px] text-slate-400 italic">Nenhuma informada</span>
+                    )}
+                    {room.amenities.length > 4 && (
+                      <span className="text-[10px] text-slate-400 font-medium px-1">
+                        +{room.amenities.length - 4}
+                      </span>
                     )}
                   </div>
                 </div>

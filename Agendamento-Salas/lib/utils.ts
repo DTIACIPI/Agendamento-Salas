@@ -28,7 +28,6 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Avança N dias úteis (seg-sex) a partir de uma data.
- * Retorna a data resultante com horário zerado.
  */
 export function addBusinessDays(from: Date, days: number): Date {
   const result = new Date(from)
@@ -55,16 +54,48 @@ export function calculateDurationHours(start: string, end: string): number {
   return ((eh * 60 + em) - (sh * 60 + sm)) / 60
 }
 
+// ─── Shift-based pricing helpers ───────────────────────────────────
+
+// Boundaries: Morning 06-12, Afternoon 12-18, Night 18-24
+type ShiftName = 'morning' | 'afternoon' | 'night'
+
+const SHIFT_BOUNDARIES: Record<ShiftName, { start: number; end: number }> = {
+  morning:   { start: 6,  end: 12 },
+  afternoon: { start: 12, end: 18 },
+  night:     { start: 18, end: 24 },
+}
+
+function getShiftForHour(hour: number): ShiftName {
+  if (hour < 12) return 'morning'
+  if (hour < 18) return 'afternoon'
+  return 'night'
+}
+
+/**
+ * Estima o preço local para um slot de tempo usando pricing por turnos.
+ * `base` = valor POR HORA do turno.
+ * `extra` = valor por hora extra além da franquia (se 0, usa base).
+ * `min_hours` = franquia mínima de horas cobradas.
+ *
+ * Lógica:
+ *  1. Primeiras min_hours horas → cobradas a `base` por hora.
+ *  2. Horas além da franquia → cobradas a `extra` (ou `base` se extra=0).
+ *  3. Se reservou menos que min_hours → cobra base × min_hours.
+ *
+ * Nota: A precificação real vem da API POST /api/pricing/calculate.
+ * Esta função serve apenas como estimativa visual na tela de calendário.
+ */
 export function getPriceForTimeSlot(
   room: Room,
   date: Date,
   startTime: string,
   endTime: string
 ): number {
-  const isSaturday = date.getDay() === 6
-  const periods = (isSaturday ? room.pricePeriodsSaturday : room.pricePeriodsWeekday) || []
+  if (!room.pricing) return 0
 
-  if (periods.length === 0) return 0
+  const isWeekend = date.getDay() === 0 || date.getDay() === 6
+  const dayPricing = isWeekend ? room.pricing.weekends : room.pricing.weekdays
+  if (!dayPricing) return 0
 
   const sh = parseInt(startTime.substring(0, 2), 10)
   const sm = parseInt(startTime.substring(3, 5), 10)
@@ -73,41 +104,46 @@ export function getPriceForTimeSlot(
 
   const startMinutes = sh * 60 + sm
   const endMinutes = eh * 60 + em
+  if (endMinutes <= startMinutes) return 0
 
+  const bookedHours = (endMinutes - startMinutes) / 60
+  const minHours = dayPricing.min_hours || 0
+
+  // Percorre o intervalo acumulando horas e preço por turno
   let totalPrice = 0
+  let accumulatedHours = 0
   let currentMinutes = startMinutes
 
   while (currentMinutes < endMinutes) {
     const currentHour = Math.floor(currentMinutes / 60)
-    
-    // Find which period this hour belongs to
-    const period = periods.find(
-      (p) => p.startHour <= currentHour && currentHour < p.endHour
-    )
-
-    if (!period) {
-      // Se não houver período configurado (ex: soma das horas mínimas ultrapassa o expediente)
-      // utilizamos o preço do primeiro período disponível no dia como fallback base.
-      const fallbackPrice = periods.length > 0 ? periods[0].price : 0
-      const nextBoundaryMinutes = Math.min(endMinutes, (currentHour + 1) * 60)
-      const minutesInThisPeriod = nextBoundaryMinutes - currentMinutes
-      totalPrice += (minutesInThisPeriod / 60) * fallbackPrice
-      currentMinutes = nextBoundaryMinutes
+    const shift = getShiftForHour(currentHour)
+    const shiftPricing = dayPricing[shift]
+    if (!shiftPricing) {
+      currentMinutes += 30
       continue
     }
 
-    // Calculate how many minutes we can use in this period
-    const nextBoundaryMinutes = Math.min(
-      endMinutes,
-      (period.endHour) * 60
-    )
+    const shiftEndMinutes = SHIFT_BOUNDARIES[shift].end * 60
+    const nextBoundary = Math.min(endMinutes, shiftEndMinutes)
+    const hoursInSegment = (nextBoundary - currentMinutes) / 60
 
-    const minutesInThisPeriod = nextBoundaryMinutes - currentMinutes
-    const hoursInThisPeriod = minutesInThisPeriod / 60
+    // Para cada segmento, determina quanto está na franquia e quanto é extra
+    const baseRate = shiftPricing.base
+    const extraRate = shiftPricing.extra > 0 ? shiftPricing.extra : baseRate
 
-    totalPrice += hoursInThisPeriod * period.price
+    const hoursStillInFranchise = Math.max(0, minHours - accumulatedHours)
+    const franchiseHours = Math.min(hoursInSegment, hoursStillInFranchise)
+    const extraHours = hoursInSegment - franchiseHours
 
-    currentMinutes = nextBoundaryMinutes
+    totalPrice += franchiseHours * baseRate + extraHours * extraRate
+    accumulatedHours += hoursInSegment
+    currentMinutes = nextBoundary
+  }
+
+  // Se reservou menos que a franquia, cobra o mínimo
+  if (bookedHours < minHours && bookedHours > 0) {
+    const avgBaseRate = totalPrice / bookedHours
+    totalPrice = avgBaseRate * minHours
   }
 
   return totalPrice
@@ -128,7 +164,7 @@ export function calculateRoomPrice(
   finalPrice: number
   appliedMinimumHours: number
 } {
-  if (!date || !startTime || !endTime) {
+  if (!date || !startTime || !endTime || !room.pricing) {
     return {
       basePrice: 0,
       discountPercent: 0,
@@ -138,40 +174,15 @@ export function calculateRoomPrice(
     }
   }
 
-  // helper for single day
-  function priceForDay(d: Date) {
-    const sh = parseInt(startTime.substring(0, 2), 10)
-    const sm = parseInt(startTime.substring(3, 5), 10)
-    const eh = parseInt(endTime.substring(0, 2), 10)
-    const em = parseInt(endTime.substring(3, 5), 10)
-
-    const bookedMinutes = (eh * 60 + em) - (sh * 60 + sm)
-    const bookedHours = bookedMinutes / 60
-
-    const isSaturday = d.getDay() === 6
-    const minHours = (isSaturday ? room.minHoursSaturday : room.minHoursWeekday) || 0
-
-    if (bookedHours <= 0) return 0
-
-    const actualPrice = getPriceForTimeSlot(room, d, startTime, endTime)
-
-    if (bookedHours < minHours) {
-      const hourlyRate = actualPrice / bookedHours
-      return hourlyRate * minHours
-    }
-
-    return actualPrice
-  }
-
   let basePrice = 0
   if (range && range.from && range.to) {
     const cur = new Date(range.from)
     while (cur <= range.to) {
-      basePrice += priceForDay(cur)
+      basePrice += getPriceForTimeSlot(room, cur, startTime, endTime)
       cur.setDate(cur.getDate() + 1)
     }
   } else {
-    basePrice = priceForDay(date)
+    basePrice = getPriceForTimeSlot(room, date, startTime, endTime)
   }
 
   let discountPercent = 0
@@ -188,21 +199,19 @@ export function calculateRoomPrice(
   const discount = basePrice * (discountPercent / 100)
   const finalPrice = basePrice - discount
 
-  const appliedMinimumHours = 0
-
   return {
     basePrice,
     discountPercent,
     discount,
     finalPrice,
-    appliedMinimumHours,
+    appliedMinimumHours: 0,
   }
 }
 
 export function isValidCNPJ(cnpj: string): boolean {
   cnpj = cnpj.replace(/[^\d]+/g, '');
   if (cnpj.length !== 14) return false;
-  if (/^(\d)\1+$/.test(cnpj)) return false; // Verifica sequências como 00000000000000
+  if (/^(\d)\1+$/.test(cnpj)) return false;
 
   let tamanho = cnpj.length - 2;
   let numeros = cnpj.substring(0, tamanho);

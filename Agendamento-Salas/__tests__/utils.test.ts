@@ -9,6 +9,9 @@ import {
 import type { Room } from '@/components/room-list'
 
 // ─── Helper: cria uma Room mínima para testes de pricing ───
+// base = valor POR HORA do turno
+// extra = valor por hora além da franquia (0 = usa base)
+// min_hours = franquia mínima
 function makeRoom(overrides: Partial<Room> = {}): Room {
   return {
     id: 'room-1',
@@ -17,17 +20,25 @@ function makeRoom(overrides: Partial<Room> = {}): Room {
     capacity: 20,
     image: '/img.jpg',
     amenities: [],
-    minHoursWeekday: 2,
-    minHoursSaturday: 2,
-    pricePeriodsWeekday: [
-      { startHour: 8, endHour: 12, price: 100 },
-      { startHour: 12, endHour: 18, price: 150 },
-      { startHour: 18, endHour: 22, price: 200 },
-    ],
-    pricePeriodsSaturday: [
-      { startHour: 8, endHour: 12, price: 120 },
-      { startHour: 12, endHour: 18, price: 180 },
-    ],
+    pricing: {
+      weekdays: {
+        morning:   { base: 100, extra: 0 },
+        afternoon: { base: 150, extra: 0 },
+        night:     { base: 200, extra: 0 },
+        min_hours: 2,
+      },
+      weekends: {
+        morning:   { base: 120, extra: 0 },
+        afternoon: { base: 180, extra: 0 },
+        night:     { base: 240, extra: 0 },
+        min_hours: 2,
+      },
+      assembly: {
+        allowed: false,
+        half_price: 0,
+        full_price: 0,
+      },
+    },
     available: true,
     ...overrides,
   }
@@ -82,53 +93,152 @@ describe('calculateDurationHours', () => {
 })
 
 // ═══════════════════════════════════════════════════════════
-// getPriceForTimeSlot
+// getPriceForTimeSlot (shift-based: base=valor/hora)
 // ═══════════════════════════════════════════════════════════
 describe('getPriceForTimeSlot', () => {
   const room = makeRoom()
 
-  it('calcula preço dentro de um único período (dia de semana)', () => {
-    // Quarta-feira, 08:00-10:00 => 2h × R$100 = R$200
-    const wed = new Date(2026, 3, 8) // quarta
+  it('calcula preço dentro de um único turno manhã (dia de semana)', () => {
+    // Quarta, 08:00-10:00 => 2h × R$100/h = R$200
+    const wed = new Date(2026, 3, 8)
     expect(getPriceForTimeSlot(room, wed, '08:00', '10:00')).toBe(200)
   })
 
-  it('calcula preço cruzando dois períodos', () => {
-    // 10:00-14:00 => 2h×100 (10-12) + 2h×150 (12-14) = 200+300 = 500
+  it('calcula preço cruzando dois turnos', () => {
+    // 10:00-14:00 => 2h×100 (manhã) + 2h×150 (tarde) = 200+300 = 500
     const wed = new Date(2026, 3, 8)
     expect(getPriceForTimeSlot(room, wed, '10:00', '14:00')).toBe(500)
   })
 
-  it('calcula preço cruzando três períodos', () => {
+  it('calcula preço cruzando três turnos', () => {
     // 08:00-20:00 => 4h×100 + 6h×150 + 2h×200 = 400+900+400 = 1700
     const wed = new Date(2026, 3, 8)
     expect(getPriceForTimeSlot(room, wed, '08:00', '20:00')).toBe(1700)
   })
 
-  it('usa preço de sábado quando é sábado', () => {
-    // Sábado, 08:00-10:00 => 2h × R$120 = R$240
-    const sat = new Date(2026, 3, 11) // sábado
+  it('usa preço de fim de semana quando é sábado', () => {
+    // Sábado, 08:00-10:00 => 2h × R$120/h = R$240
+    const sat = new Date(2026, 3, 11)
     expect(getPriceForTimeSlot(room, sat, '08:00', '10:00')).toBe(240)
   })
 
-  it('retorna 0 quando não há períodos configurados', () => {
-    const emptyRoom = makeRoom({ pricePeriodsWeekday: [] })
+  it('retorna 0 quando não há pricing configurado', () => {
+    const emptyRoom = makeRoom({ pricing: undefined })
     const wed = new Date(2026, 3, 8)
     expect(getPriceForTimeSlot(emptyRoom, wed, '08:00', '10:00')).toBe(0)
   })
 
-  it('usa fallback quando horário está fora dos períodos', () => {
-    // Sábado com períodos até 18h, mas reservando 18:00-20:00
-    // Fallback = preço do primeiro período (120)
-    const sat = new Date(2026, 3, 11)
-    const result = getPriceForTimeSlot(room, sat, '18:00', '20:00')
-    expect(result).toBe(2 * 120) // 2h × fallback
+  it('cobra franquia mesmo com meia hora reservada', () => {
+    // 08:00-08:30 => 0.5h, mas min_hours=2 → cobra 100/h × 2 = R$200
+    const wed = new Date(2026, 3, 8)
+    expect(getPriceForTimeSlot(room, wed, '08:00', '08:30')).toBe(200)
   })
 
-  it('calcula corretamente com meia hora', () => {
-    // 08:00-08:30 => 0.5h × 100 = 50
+  it('calcula meia hora corretamente quando sem franquia', () => {
+    // Sala sem franquia (min_hours=0)
+    const noMinRoom = makeRoom({
+      pricing: {
+        weekdays: {
+          morning: { base: 100, extra: 0 },
+          afternoon: { base: 150, extra: 0 },
+          night: { base: 200, extra: 0 },
+          min_hours: 0,
+        },
+        weekends: {
+          morning: { base: 120, extra: 0 },
+          afternoon: { base: 180, extra: 0 },
+          night: { base: 240, extra: 0 },
+          min_hours: 0,
+        },
+        assembly: { allowed: false, half_price: 0, full_price: 0 },
+      },
+    })
     const wed = new Date(2026, 3, 8)
-    expect(getPriceForTimeSlot(room, wed, '08:00', '08:30')).toBe(50)
+    // 08:00-08:30 => 0.5h × R$100/h = R$50
+    expect(getPriceForTimeSlot(noMinRoom, wed, '08:00', '08:30')).toBe(50)
+  })
+
+  it('calcula preço do turno da noite', () => {
+    // 18:00-20:00 => 2h × R$200/h = R$400
+    const wed = new Date(2026, 3, 8)
+    expect(getPriceForTimeSlot(room, wed, '18:00', '20:00')).toBe(400)
+  })
+
+  // ─── Franquia (min_hours) ─────────────────────────────
+  it('cobra franquia mínima quando reserva é menor que min_hours', () => {
+    // min_hours=2, reservando 1h (08:00-09:00)
+    // 1h × 100/h = 100, mas min_hours=2 → cobra 100/h × 2 = 200
+    const wed = new Date(2026, 3, 8)
+    expect(getPriceForTimeSlot(room, wed, '08:00', '09:00')).toBe(200)
+  })
+
+  it('não cobra franquia quando reserva excede min_hours', () => {
+    // min_hours=2, reservando 3h (08:00-11:00) => 3h × 100 = 300
+    const wed = new Date(2026, 3, 8)
+    expect(getPriceForTimeSlot(room, wed, '08:00', '11:00')).toBe(300)
+  })
+
+  // ─── Hora extra ───────────────────────────────────────
+  it('cobra hora extra além da franquia quando extra > 0', () => {
+    // Sala com franquia=2, base=100, extra=80 (manhã)
+    const roomExtra = makeRoom({
+      pricing: {
+        weekdays: {
+          morning:   { base: 100, extra: 80 },
+          afternoon: { base: 150, extra: 120 },
+          night:     { base: 200, extra: 160 },
+          min_hours: 2,
+        },
+        weekends: {
+          morning:   { base: 120, extra: 0 },
+          afternoon: { base: 180, extra: 0 },
+          night:     { base: 240, extra: 0 },
+          min_hours: 2,
+        },
+        assembly: { allowed: false, half_price: 0, full_price: 0 },
+      },
+    })
+    const wed = new Date(2026, 3, 8)
+    // 08:00-11:00 = 3h. Franquia 2h×100 = 200, extra 1h×80 = 80. Total = 280
+    expect(getPriceForTimeSlot(roomExtra, wed, '08:00', '11:00')).toBe(280)
+  })
+
+  it('cobra base como extra quando extra=0', () => {
+    // extra=0 → usa base para horas além da franquia
+    const wed = new Date(2026, 3, 8)
+    // 08:00-11:00 = 3h. Franquia 2h×100 + extra 1h×100 = 300
+    expect(getPriceForTimeSlot(room, wed, '08:00', '11:00')).toBe(300)
+  })
+
+  // ─── Cenário real: Auditório ──────────────────────────
+  it('calcula corretamente cenário do auditório (base=925, min_hours=4)', () => {
+    const auditorio = makeRoom({
+      pricing: {
+        weekdays: {
+          morning:   { base: 925, extra: 0 },
+          afternoon: { base: 925, extra: 0 },
+          night:     { base: 925, extra: 0 },
+          min_hours: 4,
+        },
+        weekends: {
+          morning:   { base: 1200, extra: 0 },
+          afternoon: { base: 1480, extra: 0 },
+          night:     { base: 1480, extra: 0 },
+          min_hours: 5,
+        },
+        assembly: { allowed: true, half_price: 500, full_price: 750 },
+      },
+    })
+    const wed = new Date(2026, 3, 8)
+
+    // 2h reservadas, min_hours=4 → cobra 925 × 4 = 3700
+    expect(getPriceForTimeSlot(auditorio, wed, '08:00', '10:00')).toBe(3700)
+
+    // 4h exatas → cobra 925 × 4 = 3700
+    expect(getPriceForTimeSlot(auditorio, wed, '08:00', '12:00')).toBe(3700)
+
+    // 6h (08-14) → franquia 4h×925=3700 + extra 2h×925=1850 = 5550
+    expect(getPriceForTimeSlot(auditorio, wed, '08:00', '14:00')).toBe(5550)
   })
 })
 
@@ -179,25 +289,10 @@ describe('calculateRoomPrice', () => {
     expect(result.finalPrice).toBe(140)
   })
 
-  it('aplica mínimo de horas quando reserva é menor', () => {
-    // minHoursWeekday = 2, mas reservando apenas 1h (08:00-09:00)
-    // Preço real: 1h × 100 = 100, rate = 100/h, minHours = 2 => 200
-    const wed = new Date(2026, 3, 8)
-    const result = calculateRoomPrice(room, wed, '08:00', '09:00', 0)
-    expect(result.basePrice).toBe(200) // cobra mínimo de 2h
-  })
-
-  it('não aplica mínimo quando reserva excede minHours', () => {
-    // 3h reservadas com mín 2h => cobra 3h normais
-    const wed = new Date(2026, 3, 8)
-    const result = calculateRoomPrice(room, wed, '08:00', '11:00', 0)
-    expect(result.basePrice).toBe(300) // 3h × 100
-  })
-
   it('calcula preço para range de múltiplos dias', () => {
     // 2 dias de quarta (08 e 09/04), 08:00-10:00 cada => 200 × 2 = 400
-    const from = new Date(2026, 3, 8) // quarta
-    const to = new Date(2026, 3, 9)   // quinta
+    const from = new Date(2026, 3, 8)
+    const to = new Date(2026, 3, 9)
     const result = calculateRoomPrice(room, from, '08:00', '10:00', 0, { from, to })
     expect(result.basePrice).toBe(400)
   })
@@ -205,8 +300,8 @@ describe('calculateRoomPrice', () => {
   it('calcula preço de range incluindo sábado', () => {
     // Sexta (10) + Sábado (11), 08:00-10:00
     // Sexta: 2h×100 = 200, Sábado: 2h×120 = 240 => Total: 440
-    const from = new Date(2026, 3, 10) // sexta
-    const to = new Date(2026, 3, 11)   // sábado
+    const from = new Date(2026, 3, 10)
+    const to = new Date(2026, 3, 11)
     const result = calculateRoomPrice(room, from, '08:00', '10:00', 0, { from, to })
     expect(result.basePrice).toBe(440)
   })
@@ -256,9 +351,7 @@ describe('isValidCNPJ', () => {
   })
 
   it('valida CNPJs conhecidos', () => {
-    // CNPJ da Petrobras
     expect(isValidCNPJ('33.000.167/0001-01')).toBe(true)
-    // CNPJ do Banco do Brasil
     expect(isValidCNPJ('00.000.000/0001-91')).toBe(true)
   })
 

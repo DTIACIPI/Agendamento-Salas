@@ -20,6 +20,7 @@ import { CompanyDossier } from "@/components/modals/company-dossier"
 import { CouponModal } from "@/components/modals/coupon-modal"
 import { RoomModal } from "@/components/modals/room-modal"
 import { UserModal } from "@/components/modals/user-modal"
+import { NewBookingModal } from "@/components/modals/new-booking-modal"
 import { toast } from "sonner"
 import {
   initialContracts,
@@ -111,6 +112,7 @@ function AdminDashboard() {
   const [editingRoom, setEditingRoom] = useState<Room | null>(null)
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [isNewBookingModalOpen, setIsNewBookingModalOpen] = useState(false)
 
   // Global system settings
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(DEFAULT_SETTINGS)
@@ -436,6 +438,7 @@ function AdminDashboard() {
                 perPage={BOOKINGS_PER_PAGE}
                 onPageChange={handleBookingsPageChange}
                 onOpenDossier={setSelectedBookingId}
+                onNewBooking={() => setIsNewBookingModalOpen(true)}
               />
             )}
             {activeTab === "agenda" && (
@@ -450,6 +453,7 @@ function AdminDashboard() {
               <SalasView
                 rooms={rooms}
                 isLoading={isRoomsLoading}
+                isSuperAdmin={isSuperAdmin}
                 onOpenRoomModal={openRoomModal}
                 onDeleteRoom={isSuperAdmin ? handleDeleteRoom : undefined}
               />
@@ -539,6 +543,15 @@ function AdminDashboard() {
           editingUser={editingUser}
           onClose={() => setIsUserModalOpen(false)}
           onSaved={handleUserSaved}
+        />
+        <NewBookingModal
+          open={isNewBookingModalOpen}
+          rooms={rooms}
+          onClose={() => setIsNewBookingModalOpen(false)}
+          onSaved={() => {
+            setIsNewBookingModalOpen(false)
+            fetchBookings(bookingsPage)
+          }}
         />
       </main>
     </div>

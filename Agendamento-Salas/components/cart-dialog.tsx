@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import {
   Trash2, Users, Edit2, Check, X, AlertCircle, Loader2, Info,
   ArrowLeft, CalendarDays, Clock, CheckCircle2, ChevronRight,
-  Building2, FileText, Tag,
+  Building2, FileText, Tag, Wrench, ToggleLeft, ToggleRight,
 } from "lucide-react"
 import type { BookingItem, OccupiedSlot } from "@/app/page"
 import type { Room } from "@/components/room-list"
@@ -24,6 +24,27 @@ const formatCurrency = (value: number) =>
 const formatBookingDate = (date: Date | undefined) => {
   if (!date) return "—"
   return format(date, "dd MMM yyyy", { locale: ptBR })
+}
+
+// Tipagem do retorno da API de pricing
+interface PricingDetail {
+  space_name: string
+  horas_cobradas: number
+  subtotal: number
+  taxa_montagem: number
+  descontos: number
+  total: number
+}
+
+interface PricingApiResponse {
+  success: boolean
+  cnpj_consultado: string
+  is_associado: boolean
+  porcentagem_tier: number
+  porcentagem_cupom: number
+  valorTotalGeral: number
+  descontoTotalGeral: number
+  detalhes: PricingDetail[]
 }
 
 interface CartDialogProps {
@@ -74,39 +95,67 @@ export function CartDialog({
     description?: string
   } | null>(null)
 
+  // Assembly por sala: "none" | "half" | "full"
+  const [assemblyByRoom, setAssemblyByRoom] = useState<Record<string, "none" | "half" | "full">>({})
+
+  // Pricing API response (preenchido no step 2)
+  const [pricingResponse, setPricingResponse] = useState<PricingApiResponse | null>(null)
+  const [isPricingLoading, setIsPricingLoading] = useState(false)
+
   const cartBookings = useMemo(
     () => bookings.filter(b => cartRooms.includes(b.roomId) && b.confirmedToCart),
     [bookings, cartRooms]
   )
 
-  const total = useMemo(
+  // Estimativa local (usada no step 1 antes da API)
+  const localSubtotalHoras = useMemo(
     () => cartBookings.reduce((sum, b) => sum + (b.price || 0), 0),
     [cartBookings]
   )
 
-  const totalAssociado = total * 0.9
-
-  const couponDiscount = useMemo(() => {
-    if (!appliedCoupon || totalAssociado <= 0) return 0
-    if (appliedCoupon.discount_type === "percentage") {
-      return totalAssociado * (appliedCoupon.discount_value / 100)
+  // Taxa de montagem local (por sala, baseado na seleção half/full)
+  const localTaxaMontagem = useMemo(() => {
+    let total = 0
+    for (const roomId of cartRooms) {
+      const choice = assemblyByRoom[roomId] || "none"
+      if (choice === "none") continue
+      const room = rooms.find(r => r.id === roomId)
+      const assembly = room?.pricing?.assembly
+      if (!assembly?.allowed) continue
+      const bookingsCount = cartBookings.filter(b => b.roomId === roomId).length
+      const perBooking = choice === "half" ? (assembly.half_price || 0) : (assembly.full_price || 0)
+      total += perBooking * bookingsCount
     }
-    return Math.min(appliedCoupon.discount_value, totalAssociado)
-  }, [appliedCoupon, totalAssociado])
+    return total
+  }, [cartRooms, assemblyByRoom, rooms, cartBookings])
 
-  const finalTotal = totalAssociado - couponDiscount
+  const localTotal = localSubtotalHoras + localTaxaMontagem
+
+  // Totais da API (step 2)
+  const apiSubtotal = pricingResponse?.detalhes.reduce((sum, d) => sum + (d.subtotal || 0), 0) ?? 0
+  const apiDescontoAssociado = pricingResponse?.detalhes.reduce((sum, d) => sum + (d.descontos || 0), 0) ?? 0
+  const apiTaxaMontagem = pricingResponse?.detalhes.reduce((sum, d) => sum + (d.taxa_montagem || 0), 0) ?? 0
+
+  // Cupom: incide APENAS sobre o subtotal (horas), NUNCA sobre a taxa de montagem
+  const couponDiscount = useMemo(() => {
+    const base = apiSubtotal > 0 ? (apiSubtotal - apiDescontoAssociado) : localSubtotalHoras
+    if (!appliedCoupon || base <= 0) return 0
+    if (appliedCoupon.discount_type === "percentage") {
+      return base * (appliedCoupon.discount_value / 100)
+    }
+    return Math.min(appliedCoupon.discount_value, base)
+  }, [appliedCoupon, apiSubtotal, apiDescontoAssociado, localSubtotalHoras])
+
+  // Total final
+  const finalTotal = pricingResponse
+    ? (apiSubtotal - apiDescontoAssociado - couponDiscount + apiTaxaMontagem)
+    : (localTotal - couponDiscount)
 
   const totalSchedules = cartBookings.length
-
   const hasIncompleteItems = useMemo(() => cartBookings.some(b => !b.startTime || !b.endTime), [cartBookings])
   const hasConflicts = useMemo(() => cartBookings.some(b => b.hasConflict), [cartBookings])
-
-  const orphanBookings = useMemo(
-    () => bookings.filter(b => !b.confirmedToCart),
-    [bookings]
-  )
+  const orphanBookings = useMemo(() => bookings.filter(b => !b.confirmedToCart), [bookings])
   const hasOrphanBookings = orphanBookings.length > 0
-
   const canCheckout = cartRooms.length > 0 && !hasIncompleteItems && !hasConflicts && !hasOrphanBookings
 
   const isCnpjComplete = cnpj.length === 18
@@ -122,8 +171,15 @@ export function CartDialog({
       setCouponError("")
       setAppliedCoupon(null)
       setIsApplyingCoupon(false)
+      setAssemblyByRoom({} as Record<string, "none" | "half" | "full">)
+      setPricingResponse(null)
+      setIsPricingLoading(false)
     }
   }, [open])
+
+  const setAssemblyForRoom = (roomId: string, value: "none" | "half" | "full") => {
+    setAssemblyByRoom(prev => ({ ...prev, [roomId]: value }))
+  }
 
   const handleApplyCoupon = async () => {
     const code = couponCode.trim()
@@ -134,7 +190,7 @@ export function CartDialog({
 
     try {
       const res = await fetch(
-        `${API_BASE_URL}/webhook/api/coupons/validate?code=${encodeURIComponent(code)}`
+        `${API_BASE_URL}/webhook/api/public/coupons/validate?code=${encodeURIComponent(code)}`
       )
       const text = await res.text()
       if (!text) { setCouponError("Cupom não encontrado."); setAppliedCoupon(null); return }
@@ -179,44 +235,66 @@ export function CartDialog({
     setCnpj(v)
   }
 
-  const handleProsseguir = async () => {
-    setIsValidating(true)
-    try {
-      const cleanCnpj = cnpj.replace(/\D/g, "")
-      const urlValidateCompany = `${API_BASE_URL}/webhook/validate-cnpj-webhook/api/companies/validate/${cleanCnpj}`
-      const urlCalculatePricing = `${API_BASE_URL}/webhook/api/pricing/calculate`
+  // Chama a API de pricing quando CNPJ muda e é válido (step 2)
+  useEffect(() => {
+    if (step !== 2 || !isCnpjValidValue) {
+      setPricingResponse(null)
+      return
+    }
 
-      const [companyRes, pricingRes] = await Promise.all([
-        fetch(urlValidateCompany).catch((err) => {
-          console.error("Erro no fetch validate-cnpj:", err)
-          return null
-        }),
-        fetch(urlCalculatePricing, {
+    const timer = setTimeout(async () => {
+      setIsPricingLoading(true)
+      try {
+        const cleanCnpj = cnpj.replace(/\D/g, "")
+        const res = await fetch(`${API_BASE_URL}/webhook/api/public/pricing/calculate`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             cnpj: cleanCnpj,
+            coupon_discount_pct: appliedCoupon?.discount_type === "percentage" ? appliedCoupon.discount_value : 0,
             reservas: cartBookings.map(b => ({
               space_id: b.roomId,
               date: b.selectedRange.from ? b.selectedRange.from.toISOString().split('T')[0] : null,
               startTime: b.startTime,
               endTime: b.endTime,
+              requires_assembly: (assemblyByRoom[b.roomId] || "none") !== "none" ? assemblyByRoom[b.roomId] : false,
             })),
           }),
-        }).catch((err) => {
-          console.error("Erro no fetch pricing:", err)
-          return null
-        }),
-      ])
+        })
+        if (res.ok) {
+          const data = await res.json()
+          const parsed = Array.isArray(data) ? data[0] : data
+          setPricingResponse(parsed)
+        }
+      } catch (err) {
+        console.error("Erro ao calcular pricing:", err)
+      } finally {
+        setIsPricingLoading(false)
+      }
+    }, 600)
+
+    return () => clearTimeout(timer)
+  }, [step, cnpj, isCnpjValidValue, cartBookings, assemblyByRoom, appliedCoupon])
+
+  const handleProsseguir = async () => {
+    setIsValidating(true)
+    try {
+      const cleanCnpj = cnpj.replace(/\D/g, "")
+      const urlValidateCompany = `${API_BASE_URL}/webhook/api/public/companies/validate/${cleanCnpj}`
+
+      const companyRes = await fetch(urlValidateCompany).catch((err) => {
+        console.error("Erro no fetch validate-cnpj:", err)
+        return null
+      })
 
       const companyData = companyRes && companyRes.ok ? await companyRes.json() : null
-      const pricingData = pricingRes && pricingRes.ok ? await pricingRes.json() : null
 
       sessionStorage.setItem("acipi_checkout_prep", JSON.stringify({
         company: companyData,
-        pricing: pricingData,
+        pricing: pricingResponse,
         selectedRoomsData: rooms.filter(r => cartRooms.includes(r.id)),
         appliedCoupon: appliedCoupon || null,
+        assemblyByRoom,
       }))
 
       onOpenChange(false)
@@ -300,6 +378,7 @@ export function CartDialog({
                         )
                         const roomTotal = roomBookings.reduce((sum, b) => sum + (b.price || 0), 0)
                         const roomOccupiedSlots = occupiedSlotsByRoom[roomId] || []
+                        const assemblyAllowed = room?.pricing?.assembly?.allowed ?? false
 
                         if (!room || roomBookings.length === 0) return null
 
@@ -310,7 +389,7 @@ export function CartDialog({
                           >
                             <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#004b87] rounded-l-2xl opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                            {/* Room Image - top */}
+                            {/* Room Image */}
                             <div className="relative w-full h-40">
                               <Image
                                 src={room.image}
@@ -325,7 +404,7 @@ export function CartDialog({
                               </div>
                             </div>
 
-                            {/* Room Content - bottom */}
+                            {/* Room Content */}
                             <div className="p-5 flex flex-col gap-3">
                               <div className="flex justify-between items-start">
                                 <h2 className="text-lg font-bold text-[#3a4454]">{room.name}</h2>
@@ -339,6 +418,75 @@ export function CartDialog({
                                   <Trash2 size={18} />
                                 </Button>
                               </div>
+
+                              {/* Assembly Toggle */}
+                              {assemblyAllowed && (() => {
+                                const assemblyChoice = assemblyByRoom[roomId] || "none"
+                                const assemblyEnabled = assemblyChoice !== "none"
+                                const halfPrice = room.pricing?.assembly?.half_price || 0
+                                const fullPrice = room.pricing?.assembly?.full_price || 0
+                                return (
+                                  <div className={cn(
+                                    "rounded-lg border px-3 py-2.5 flex flex-col gap-2 transition-colors",
+                                    assemblyEnabled ? "bg-amber-50 border-amber-200" : "bg-gray-50 border-gray-200"
+                                  )}>
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <Wrench size={16} className={assemblyEnabled ? "text-amber-600" : "text-gray-400"} />
+                                        <div>
+                                          <span className={cn("text-sm font-medium", assemblyEnabled ? "text-amber-800" : "text-gray-600")}>Taxa de montagem</span>
+                                          <p className={cn("text-[11px]", assemblyEnabled ? "text-amber-600" : "text-gray-400")}>Montagem/desmontagem do espaço</p>
+                                        </div>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        onClick={() => setAssemblyForRoom(roomId, assemblyEnabled ? "none" : "half")}
+                                        className="shrink-0 cursor-pointer"
+                                      >
+                                        {assemblyEnabled ? (
+                                          <ToggleRight className="w-9 h-9 text-[#004b87]" />
+                                        ) : (
+                                          <ToggleLeft className="w-9 h-9 text-gray-300" />
+                                        )}
+                                      </button>
+                                    </div>
+                                    {assemblyEnabled && (
+                                      <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setAssemblyForRoom(roomId, "half")}
+                                          className={cn(
+                                            "rounded-lg border px-2 py-2 text-center transition-all cursor-pointer flex flex-col items-center gap-0.5",
+                                            assemblyChoice === "half"
+                                              ? "border-[#004b87] bg-[#004b87] text-white shadow-sm"
+                                              : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                                          )}
+                                        >
+                                          <span className="text-xs font-medium">Meio período</span>
+                                          <span className={cn("text-[11px] font-bold", assemblyChoice === "half" ? "text-blue-100" : "text-amber-600")}>
+                                            {formatCurrency(halfPrice)}
+                                          </span>
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setAssemblyForRoom(roomId, "full")}
+                                          className={cn(
+                                            "rounded-lg border px-2 py-2 text-center transition-all cursor-pointer flex flex-col items-center gap-0.5",
+                                            assemblyChoice === "full"
+                                              ? "border-[#004b87] bg-[#004b87] text-white shadow-sm"
+                                              : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                                          )}
+                                        >
+                                          <span className="text-xs font-medium">Período completo</span>
+                                          <span className={cn("text-[11px] font-bold", assemblyChoice === "full" ? "text-blue-100" : "text-amber-600")}>
+                                            {formatCurrency(fullPrice)}
+                                          </span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                              })()}
 
                               {/* Schedule Block */}
                               <div className="bg-[#f0f5fa] rounded-xl p-4 border border-[#e1ebf4]">
@@ -496,17 +644,37 @@ export function CartDialog({
                                     )
                                   })}
                                 </div>
-                                {/* Room subtotal */}
-                                <div className="flex flex-col gap-0.5 mt-3 pt-3 border-t border-[#e1ebf4]">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-xs font-medium text-gray-500">Não Associado</span>
-                                    <span className="text-xs font-semibold text-[#3a4454]">{formatCurrency(roomTotal)}</span>
-                                  </div>
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-xs font-medium text-[#004b87]">Associado</span>
-                                    <span className="text-xs font-bold text-[#004b87]">{formatCurrency(roomTotal * 0.9)}</span>
-                                  </div>
-                                </div>
+                                {/* Room subtotal (estimativa local) */}
+                                {(() => {
+                                  const assemblyChoice = assemblyByRoom[roomId] || "none"
+                                  const assemblyPrice = assemblyChoice === "half"
+                                    ? (room.pricing?.assembly?.half_price || 0)
+                                    : assemblyChoice === "full"
+                                      ? (room.pricing?.assembly?.full_price || 0)
+                                      : 0
+                                  const assemblyTotalRoom = assemblyPrice * roomBookings.length
+                                  const roomTotalWithAssembly = roomTotal + assemblyTotalRoom
+                                  const roomAssociadoTotal = roomTotal * 0.9 + assemblyTotalRoom
+                                  return (
+                                    <div className="flex flex-col gap-1 mt-3 pt-3 border-t border-[#e1ebf4]">
+                                      {assemblyTotalRoom > 0 && (
+                                        <div className="flex justify-between items-center">
+                                          <span className="text-[11px] text-amber-600 font-medium">Taxa montagem ({roomBookings.length}x)</span>
+                                          <span className="text-[11px] font-medium text-amber-600">{formatCurrency(assemblyTotalRoom)}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-xs font-medium text-gray-500">Não Associado</span>
+                                        <span className="text-xs font-semibold text-[#3a4454]">{formatCurrency(roomTotalWithAssembly)}</span>
+                                      </div>
+                                      <div className="flex justify-between items-center">
+                                        <span className="text-xs font-medium text-[#004b87]">Associado</span>
+                                        <span className="text-xs font-bold text-[#004b87]">{formatCurrency(roomAssociadoTotal)}</span>
+                                      </div>
+                                      <p className="text-[10px] text-gray-400">* Desconto pode chegar até 30%</p>
+                                    </div>
+                                  )
+                                })()}
                               </div>
                             </div>
                           </div>
@@ -518,7 +686,6 @@ export function CartDialog({
                   {/* STEP 2: Dados Fiscais Card */}
                   {step === 2 && (
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                      {/* Card Header */}
                       <div className="px-6 py-5 border-b border-gray-100 flex items-center gap-4 bg-gray-50/50">
                         <div className="bg-white p-2.5 rounded-lg shadow-sm border border-gray-200">
                           <Building2 className="text-[#004b87]" size={24} />
@@ -580,123 +747,192 @@ export function CartDialog({
                           )}
                           <p className="text-xs text-gray-400 mt-2">Apenas números. O formato será aplicado automaticamente.</p>
                         </div>
+
+                        {/* Pricing loading indicator */}
+                        {isPricingLoading && isCnpjValidValue && (
+                          <div className="flex items-center gap-2 mt-4 text-sm text-[#004b87]">
+                            <Loader2 size={16} className="animate-spin" />
+                            <span>Calculando valores...</span>
+                          </div>
+                        )}
+
+                        {/* Cupom de Desconto — habilitado somente após CNPJ válido */}
+                        <div className={cn("mt-8 pt-6 border-t border-gray-100", !isCnpjValidValue && "opacity-40 pointer-events-none")}>
+                          <div className="flex items-center gap-2 mb-3">
+                            <Tag size={16} className="text-[#004b87]" />
+                            <label className="text-sm font-bold text-[#3a4454]">Cupom de desconto</label>
+                          </div>
+                          {appliedCoupon ? (
+                            <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                              <div className="flex items-center gap-2">
+                                <CheckCircle2 size={16} className="text-green-600 shrink-0" />
+                                <div className="flex flex-col">
+                                  <span className="text-sm font-bold text-green-700">{appliedCoupon.code}</span>
+                                  <span className="text-xs text-green-600">
+                                    {appliedCoupon.discount_type === "percentage"
+                                      ? `${appliedCoupon.discount_value}% de desconto (sobre horas)`
+                                      : `- ${formatCurrency(appliedCoupon.discount_value)} de desconto (sobre horas)`}
+                                  </span>
+                                </div>
+                              </div>
+                              <button
+                                onClick={handleRemoveCoupon}
+                                className="text-green-600 hover:text-red-500 transition-colors cursor-pointer p-1"
+                                title="Remover cupom"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="max-w-md">
+                              <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                  <Tag size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                                  <input
+                                    type="text"
+                                    value={couponCode}
+                                    onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError("") }}
+                                    placeholder="Digite o cupom"
+                                    disabled={isApplyingCoupon || !isCnpjValidValue}
+                                    className={cn(
+                                      "w-full border-2 rounded-xl pl-9 pr-3 py-3 text-sm outline-none focus:border-[#004b87] focus:ring-4 focus:ring-[#004b87]/10 transition-all",
+                                      couponError ? "border-red-300" : "border-gray-200",
+                                      (isApplyingCoupon || !isCnpjValidValue) && "opacity-50 cursor-not-allowed"
+                                    )}
+                                    maxLength={20}
+                                    onKeyDown={(e) => { if (e.key === "Enter" && couponCode.trim()) handleApplyCoupon() }}
+                                  />
+                                </div>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={!couponCode.trim() || isApplyingCoupon || !isCnpjValidValue}
+                                  onClick={handleApplyCoupon}
+                                  className="text-sm font-semibold px-4 py-3 h-auto cursor-pointer border-2 border-[#004b87] text-[#004b87] hover:bg-[#004b87]/5 disabled:opacity-40 rounded-xl"
+                                >
+                                  {isApplyingCoupon ? <Loader2 size={14} className="animate-spin" /> : "Aplicar"}
+                                </Button>
+                              </div>
+                              {couponError && (
+                                <p className="text-xs text-red-500 font-medium mt-2">{couponError}</p>
+                              )}
+                              <p className="text-xs text-gray-400 mt-2">Caso possua um cupom, insira-o acima para obter desconto.</p>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* RIGHT COLUMN: Summary Sidebar (visible on both steps) */}
+                {/* RIGHT COLUMN: Summary Sidebar */}
                 <div className="lg:col-span-4">
                   <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 lg:sticky lg:top-6">
-                    <h3 className="text-lg font-bold text-[#3a4454] mb-6">Resumo da Reserva</h3>
+                    <h3 className="text-lg font-bold text-[#3a4454] mb-6">
+                      {pricingResponse ? "Extrato Financeiro" : "Resumo da Reserva"}
+                    </h3>
 
-                    <div className="space-y-3 mb-5">
-                      <div className="flex justify-between items-center text-gray-500 text-sm">
-                        <span>Subtotal (Não Associado)</span>
-                        <span className="font-medium">{formatCurrency(total)}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
-                        <div className="flex items-center gap-1.5">
-                          <CheckCircle2 size={14} />
-                          <span className="font-medium text-xs">Desconto Associado</span>
+                    {/* EXTRATO COMPLETO (quando pricing API respondeu) */}
+                    {pricingResponse ? (
+                      <div className="space-y-3 mb-5">
+                        {/* Valor das Horas */}
+                        <div className="flex justify-between items-center text-gray-600 text-sm">
+                          <span>Valor das Horas</span>
+                          <span className="font-semibold">{formatCurrency(apiSubtotal)}</span>
                         </div>
-                        <span className="font-bold text-sm">- {formatCurrency(total * 0.1)}</span>
-                      </div>
-                      {appliedCoupon && couponDiscount > 0 && (
-                        <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
-                          <div className="flex items-center gap-1.5">
-                            <Tag size={14} />
-                            <span className="font-medium text-xs">Cupom {appliedCoupon.code}</span>
+
+                        {/* Desconto Associado */}
+                        {apiDescontoAssociado > 0 && (
+                          <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
+                            <div className="flex items-center gap-1.5">
+                              <CheckCircle2 size={14} />
+                              <span className="font-medium text-xs">
+                                Desconto Associado{pricingResponse?.porcentagem_tier ? ` (${pricingResponse.porcentagem_tier}%)` : ""}
+                              </span>
+                            </div>
+                            <span className="font-bold text-sm">- {formatCurrency(apiDescontoAssociado)}</span>
                           </div>
-                          <span className="font-bold text-sm">- {formatCurrency(couponDiscount)}</span>
+                        )}
+
+                        {/* Cupom (sobre subtotal apenas) */}
+                        {appliedCoupon && couponDiscount > 0 && (
+                          <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
+                            <div className="flex items-center gap-1.5">
+                              <Tag size={14} />
+                              <span className="font-medium text-xs">
+                                Cupom {appliedCoupon.code}
+                                {appliedCoupon.discount_type === "percentage" && ` (${appliedCoupon.discount_value}%)`}
+                              </span>
+                            </div>
+                            <span className="font-bold text-sm">- {formatCurrency(couponDiscount)}</span>
+                          </div>
+                        )}
+
+                        {/* Taxa de Montagem */}
+                        {apiTaxaMontagem > 0 && (
+                          <div className="flex justify-between items-center text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100">
+                            <div className="flex items-center gap-1.5">
+                              <Wrench size={14} />
+                              <span className="font-medium text-xs">Taxa de Montagem</span>
+                            </div>
+                            <span className="font-bold text-sm">{formatCurrency(apiTaxaMontagem)}</span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      /* RESUMO SIMPLIFICADO (step 1, sem API) */
+                      <div className="space-y-3 mb-5">
+                        {localTaxaMontagem > 0 && (
+                          <div className="flex justify-between items-center text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-100">
+                            <div className="flex items-center gap-1.5">
+                              <Wrench size={14} />
+                              <span className="font-medium text-xs">Taxa de Montagem</span>
+                            </div>
+                            <span className="font-bold text-sm">{formatCurrency(localTaxaMontagem)}</span>
+                          </div>
+                        )}
+                        {appliedCoupon && couponDiscount > 0 && (
+                          <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
+                            <div className="flex items-center gap-1.5">
+                              <Tag size={14} />
+                              <span className="font-medium text-xs">Cupom {appliedCoupon.code}</span>
+                            </div>
+                            <span className="font-bold text-sm">- {formatCurrency(couponDiscount)}</span>
+                          </div>
+                        )}
+                        <div className="border-t border-gray-100 pt-2 mt-1 space-y-1.5">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-gray-500">Não Associado</span>
+                            <span className="text-sm font-semibold text-[#3a4454]">{formatCurrency(Math.max(0, localTotal - couponDiscount))}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-[#004b87]">Associado (10%)</span>
+                            <span className="text-sm font-bold text-[#004b87]">{formatCurrency(Math.max(0, localSubtotalHoras * 0.9 + localTaxaMontagem - couponDiscount))}</span>
+                          </div>
+                          <p className="text-[10px] text-gray-400">* Desconto pode chegar até 30%</p>
                         </div>
-                      )}
-                    </div>
+                        <p className="text-[11px] text-gray-400 italic">
+                          O valor exato será calculado ao informar o CNPJ na próxima etapa.
+                        </p>
+                      </div>
+                    )}
 
                     <div className="border-t border-gray-200 my-5" />
 
                     <div className="flex justify-between items-end mb-4">
                       <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1">Total</p>
-                        <p className="text-2xl font-extrabold text-[#004b87]">{formatCurrency(finalTotal)}</p>
-                      </div>
-                    </div>
-
-                    {/* Cupom de Desconto */}
-                    <div className="mb-5">
-                      <label className="block text-xs font-semibold text-[#3a4454] mb-1.5">Cupom de desconto</label>
-                      {appliedCoupon ? (
-                        <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2.5">
-                          <div className="flex items-center gap-2">
-                            <CheckCircle2 size={16} className="text-green-600 shrink-0" />
-                            <div className="flex flex-col">
-                              <span className="text-sm font-bold text-green-700">{appliedCoupon.code}</span>
-                              <span className="text-[11px] text-green-600">
-                                {appliedCoupon.discount_type === "percentage"
-                                  ? `${appliedCoupon.discount_value}% de desconto`
-                                  : `- ${formatCurrency(appliedCoupon.discount_value)} de desconto`}
-                              </span>
-                            </div>
-                          </div>
-                          <button
-                            onClick={handleRemoveCoupon}
-                            className="text-green-600 hover:text-red-500 transition-colors cursor-pointer p-1"
-                            title="Remover cupom"
-                          >
-                            <X size={16} />
-                          </button>
-                        </div>
-                      ) : (
-                        <>
-                          <div className="flex gap-2">
-                            <div className="relative flex-1">
-                              <Tag size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                              <input
-                                type="text"
-                                value={couponCode}
-                                onChange={(e) => { setCouponCode(e.target.value.toUpperCase()); setCouponError("") }}
-                                placeholder="Digite o cupom"
-                                disabled={isApplyingCoupon}
-                                className={cn(
-                                  "w-full border rounded-lg pl-8 pr-3 py-2 text-sm outline-none focus:border-[#004b87] focus:ring-2 focus:ring-[#004b87]/10 transition-all",
-                                  couponError ? "border-red-300" : "border-gray-200",
-                                  isApplyingCoupon && "opacity-50"
-                                )}
-                                maxLength={20}
-                                onKeyDown={(e) => { if (e.key === "Enter" && couponCode.trim()) handleApplyCoupon() }}
-                              />
-                            </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={!couponCode.trim() || isApplyingCoupon}
-                              onClick={handleApplyCoupon}
-                              className="text-xs font-semibold px-3 cursor-pointer border-[#004b87] text-[#004b87] hover:bg-[#004b87]/5 disabled:opacity-40"
-                            >
-                              {isApplyingCoupon ? <Loader2 size={14} className="animate-spin" /> : "Aplicar"}
-                            </Button>
-                          </div>
-                          {couponError && (
-                            <p className="text-xs text-red-500 font-medium mt-1.5">{couponError}</p>
+                        <p className="text-xs font-medium text-gray-500 mb-1">Total a Pagar</p>
+                        <p className="text-2xl font-extrabold text-[#004b87]">
+                          {isPricingLoading ? (
+                            <span className="flex items-center gap-2 text-base text-gray-400">
+                              <Loader2 size={18} className="animate-spin" /> Calculando...
+                            </span>
+                          ) : (
+                            formatCurrency(Math.max(0, finalTotal))
                           )}
-                        </>
-                      )}
-                    </div>
-
-                    <details className="group text-[11px] mb-6">
-                      <summary className="inline-flex items-center gap-1 text-[#004b87] cursor-pointer hover:underline font-medium">
-                        <Info className="size-3" />
-                        Saiba mais sobre descontos
-                      </summary>
-                      <div className="mt-1.5 rounded-md bg-blue-50 border border-blue-100 p-2.5 text-xs text-blue-900 leading-relaxed">
-                        <span className="font-semibold">Desconto por tempo de associação:</span>
-                        <ul className="mt-1 ml-3 list-disc space-y-0.5">
-                          <li>Até 12 meses: <strong>10%</strong></li>
-                          <li>De 13 a 24 meses: <strong>20%</strong></li>
-                          <li>Acima de 24 meses: <strong>30%</strong></li>
-                        </ul>
+                        </p>
                       </div>
-                    </details>
+                    </div>
 
                     {hasOrphanBookings && step === 1 && (
                       <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 mb-4">
@@ -723,10 +959,10 @@ export function CartDialog({
                     ) : (
                       <button
                         onClick={handleProsseguir}
-                        disabled={isValidating || !isCnpjValidValue}
+                        disabled={isValidating || !isCnpjValidValue || isPricingLoading}
                         className={cn(
                           "w-full bg-[#004b87] hover:bg-[#003865] text-white font-bold text-lg py-4 rounded-xl shadow-md shadow-blue-900/20 hover:shadow-lg transition-all flex justify-center items-center gap-2 group",
-                          (isValidating || !isCnpjValidValue) && "disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
+                          (isValidating || !isCnpjValidValue || isPricingLoading) && "disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none"
                         )}
                       >
                         {isValidating ? (
@@ -736,7 +972,7 @@ export function CartDialog({
                           </>
                         ) : (
                           <>
-                            Prosseguir
+                            Solicitar Pré-Reserva
                             <ChevronRight className={cn("transition-transform", isCnpjValidValue && "group-hover:translate-x-1")} />
                           </>
                         )}

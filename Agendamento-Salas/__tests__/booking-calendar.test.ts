@@ -45,21 +45,15 @@ describe('isSlotOccupied', () => {
     expect(isSlotOccupied(date, '11:30', slots)).toBe(true)
   })
 
-  it('bloqueia margem de limpeza de 30min ANTES do início', () => {
-    // Ocupado 10:00-12:00, margem começa em 09:30
-    expect(isSlotOccupied(date, '09:30', slots)).toBe(true)
+  it('libera horário imediatamente antes do slot', () => {
+    expect(isSlotOccupied(date, '09:30', slots)).toBe(false)
   })
 
-  it('bloqueia margem de limpeza de 30min DEPOIS do fim', () => {
-    // Ocupado 10:00-12:00, margem vai até 12:30
-    expect(isSlotOccupied(date, '12:00', slots)).toBe(true)
+  it('libera horário exatamente no fim do slot', () => {
+    expect(isSlotOccupied(date, '12:00', slots)).toBe(false)
   })
 
-  it('libera exatamente no fim da margem (12:30 está LIVRE)', () => {
-    expect(isSlotOccupied(date, '12:30', slots)).toBe(false)
-  })
-
-  it('libera horário antes da margem (09:00 está LIVRE)', () => {
+  it('libera horário bem antes do slot', () => {
     expect(isSlotOccupied(date, '09:00', slots)).toBe(false)
   })
 
@@ -89,12 +83,11 @@ describe('isSlotOccupied', () => {
     expect(isSlotOccupied(date, '15:00', multiSlots)).toBe(true)
   })
 
-  it('margem de limpeza do primeiro slot não conflita com segundo slot distante', () => {
+  it('horário entre dois slots distantes está livre', () => {
     const spacedSlots: OccupiedSlot[] = [
       { date: '2026-04-08', startTime: '08:00', endTime: '09:00' },
       { date: '2026-04-08', startTime: '14:00', endTime: '16:00' },
     ]
-    // 09:30 = fim da margem do primeiro slot, deve estar livre
     expect(isSlotOccupied(date, '09:30', spacedSlots)).toBe(false)
   })
 })
@@ -121,15 +114,12 @@ describe('isRangeAvailable', () => {
     expect(isRangeAvailable(date, '10:00', '11:00', slots)).toBe(false)
   })
 
-  it('retorna false quando range cruza a margem de limpeza', () => {
-    // 09:00-10:00 => verifica slots 09:00 e 09:30
-    // 09:30 está bloqueado (margem de 30min antes do 10:00)
-    expect(isRangeAvailable(date, '09:00', '10:00', slots)).toBe(false)
+  it('retorna true quando range termina exatamente no início do slot', () => {
+    expect(isRangeAvailable(date, '09:00', '10:00', slots)).toBe(true)
   })
 
-  it('retorna true quando range começa exatamente após margem', () => {
-    // 12:30 é o primeiro slot livre após margem
-    expect(isRangeAvailable(date, '12:30', '14:00', slots)).toBe(true)
+  it('retorna true quando range começa exatamente no fim do slot', () => {
+    expect(isRangeAvailable(date, '12:00', '14:00', slots)).toBe(true)
   })
 
   it('retorna false quando start >= end', () => {
@@ -146,9 +136,7 @@ describe('isRangeAvailable', () => {
     expect(isRangeAvailable(date, '08:00', '22:00', [])).toBe(true)
   })
 
-  it('retorna false quando margem pós-slot invade o range', () => {
-    // Slot 10:00-12:00 + margem até 12:30
-    // Range 12:00-13:00 => 12:00 está dentro da margem
-    expect(isRangeAvailable(date, '12:00', '13:00', slots)).toBe(false)
+  it('retorna true quando range começa no fim exato do slot', () => {
+    expect(isRangeAvailable(date, '12:00', '13:00', slots)).toBe(true)
   })
 })
