@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
 import { cn, formatDateToISO, API_BASE_URL } from "@/lib/utils"
@@ -219,8 +219,6 @@ function FormularioContent() {
       }
       return next
     })
-    // Definir aba ativa como o primeiro booking
-    setActiveEventTab(prev => prev || bookings[0]?.id || "")
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings])
 
@@ -295,10 +293,10 @@ function FormularioContent() {
   const isLocked = (name: string) => lockedFields.has(name)
   const isFieldRequired = (name: string) => requiredFields.some(f => f.key === name)
   const hasError = (name: string) => showErrors && isFieldRequired(name) && !formData[name as keyof typeof formData]?.trim()
-  const hasEventError = (bookingId: string, name: keyof EventData) => {
+  const hasEventError = (canonicalId: string, name: keyof EventData) => {
     if (!showErrors) return false
     if (!requiredEventFields.some(f => f.key === name)) return false
-    return !(eventDataMap[bookingId]?.[name]?.trim())
+    return !(eventDataMap[canonicalId]?.[name]?.trim())
   }
   const inputClass = (name: string) => {
     if (isLocked(name)) return "w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
@@ -308,8 +306,69 @@ function FormularioContent() {
 
   const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
 
-  const allEventsValid = cartBookings.every(b => {
-    const ed = eventDataMap[b.id]
+  const eventGroups = useMemo(() => {
+    const groups: { key: string; roomId: string; roomName: string; bookingIds: string[]; canonicalId: string; dates: string[]; startTime: string; endTime: string }[] = []
+    const roomMap = new Map<string, typeof cartBookings>()
+    for (const b of cartBookings) {
+      const list = roomMap.get(b.roomId) || []
+      list.push(b)
+      roomMap.set(b.roomId, list)
+    }
+    for (const [roomId, rBookings] of roomMap) {
+      const roomName = rooms.find(r => r.id === roomId)?.name || "Sala"
+      const allSameTime = rBookings.length > 1 && rBookings.every(
+        b => b.startTime === rBookings[0].startTime && b.endTime === rBookings[0].endTime
+      )
+      if (allSameTime) {
+        groups.push({
+          key: `${roomId}-all`,
+          roomId,
+          roomName,
+          bookingIds: rBookings.map(b => b.id),
+          canonicalId: rBookings[0].id,
+          dates: rBookings.map(b => b.selectedRange.from?.toLocaleDateString("pt-BR") || ""),
+          startTime: rBookings[0].startTime,
+          endTime: rBookings[0].endTime,
+        })
+      } else {
+        for (const b of rBookings) {
+          groups.push({
+            key: b.id,
+            roomId,
+            roomName,
+            bookingIds: [b.id],
+            canonicalId: b.id,
+            dates: [b.selectedRange.from?.toLocaleDateString("pt-BR") || ""],
+            startTime: b.startTime,
+            endTime: b.endTime,
+          })
+        }
+      }
+    }
+    return groups
+  }, [cartBookings, rooms])
+
+  const canonicalIdMap = useMemo(() => {
+    const map: Record<string, string> = {}
+    for (const g of eventGroups) {
+      for (const bId of g.bookingIds) {
+        map[bId] = g.canonicalId
+      }
+    }
+    return map
+  }, [eventGroups])
+
+  // Definir aba ativa como o primeiro grupo
+  useEffect(() => {
+    if (eventGroups.length === 0) return
+    setActiveEventTab(prev => {
+      if (prev && eventGroups.some(g => g.key === prev)) return prev
+      return eventGroups[0]?.key || ""
+    })
+  }, [eventGroups])
+
+  const allEventsValid = eventGroups.every(g => {
+    const ed = eventDataMap[g.canonicalId]
     if (!ed) return false
     return requiredEventFields.every(f => ed[f.key]?.trim() !== "")
   })
@@ -318,14 +377,13 @@ function FormularioContent() {
 
   const handleFinalize = async () => {
     const missing = requiredFields.filter(f => formData[f.key].trim() === "")
-    // Checar campos de evento obrigatórios por booking
+    // Checar campos de evento obrigatórios por grupo
     const missingEvents: string[] = []
-    for (const b of cartBookings) {
-      const ed = eventDataMap[b.id]
-      const roomName = rooms.find(r => r.id === b.roomId)?.name || "Sala"
+    for (const g of eventGroups) {
+      const ed = eventDataMap[g.canonicalId]
       for (const f of requiredEventFields) {
         if (!ed?.[f.key]?.trim()) {
-          missingEvents.push(`${f.label} (${roomName})`)
+          missingEvents.push(`${f.label} (${g.roomName})`)
         }
       }
     }
@@ -392,11 +450,11 @@ function FormularioContent() {
           startTime: item.startTime,
           endTime: item.endTime,
           requires_assembly: (assemblyByRoom[item.roomId] || "none") !== "none" ? assemblyByRoom[item.roomId] : null,
-          event_name: eventDataMap[item.id]?.nomeEvento || "",
-          event_purpose: eventDataMap[item.id]?.finalidadeEvento || "",
-          estimated_attendees: eventDataMap[item.id]?.participantes ? parseInt(eventDataMap[item.id].participantes) : null,
-          onsite_contact_name: eventDataMap[item.id]?.responsavelLocal || "",
-          onsite_contact_phone: (eventDataMap[item.id]?.contatoLocal || "").replace(/\D/g, ""),
+          event_name: eventDataMap[canonicalIdMap[item.id]]?.nomeEvento || "",
+          event_purpose: eventDataMap[canonicalIdMap[item.id]]?.finalidadeEvento || "",
+          estimated_attendees: eventDataMap[canonicalIdMap[item.id]]?.participantes ? parseInt(eventDataMap[canonicalIdMap[item.id]].participantes) : null,
+          onsite_contact_name: eventDataMap[canonicalIdMap[item.id]]?.responsavelLocal || "",
+          onsite_contact_phone: (eventDataMap[canonicalIdMap[item.id]]?.contatoLocal || "").replace(/\D/g, ""),
           payment_method: formData.opcaoPagamento,
           total_amount: finalAmount,
           coupon_code: appliedCoupon?.code || null,
@@ -750,34 +808,33 @@ function FormularioContent() {
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-4">Sobre o Evento</h3>
 
-            {cartBookings.length > 1 && (
+            {eventGroups.length > 1 && (
               <p className="text-sm text-slate-500 mb-3 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                Preencha as informacoes do evento para <strong>cada sala selecionada</strong>. Utilize as abas abaixo para alternar entre elas.
+                Preencha as informacoes do evento para <strong>cada reserva</strong>. Utilize as abas abaixo para alternar entre elas.
               </p>
             )}
 
-            {/* Abas por sala/booking — só mostra se houver mais de 1 */}
-            {cartBookings.length > 1 && (
+            {/* Abas por grupo — só mostra se houver mais de 1 */}
+            {eventGroups.length > 1 && (
               <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-                {cartBookings.map((b) => {
-                  const room = rooms.find(r => r.id === b.roomId)
-                  const isActive = activeEventTab === b.id
-                  const ed = eventDataMap[b.id]
+                {eventGroups.map((g) => {
+                  const isActive = activeEventTab === g.key
+                  const ed = eventDataMap[g.canonicalId]
                   const hasIncomplete = requiredEventFields.some(f => !ed?.[f.key]?.trim())
                   return (
                     <button
-                      key={b.id}
+                      key={g.key}
                       type="button"
-                      onClick={() => setActiveEventTab(b.id)}
+                      onClick={() => setActiveEventTab(g.key)}
                       className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border ${
                         isActive
                           ? "bg-[#184689] text-white border-[#184689]"
                           : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
                       }`}
                     >
-                      <span>{room?.name || "Sala"}</span>
+                      <span>{g.roomName}</span>
                       <span className={`text-[10px] ${isActive ? "text-blue-200" : "text-slate-400"}`}>
-                        {b.selectedRange.from?.toLocaleDateString("pt-BR")} {b.startTime}-{b.endTime}
+                        {g.dates.length > 1 ? `${g.dates.length} dias` : g.dates[0]} {g.startTime}-{g.endTime}
                       </span>
                       {showErrors && hasIncomplete && (
                         <span className={`w-2 h-2 rounded-full ${isActive ? "bg-red-300" : "bg-red-500"}`} />
@@ -788,65 +845,64 @@ function FormularioContent() {
               </div>
             )}
 
-            {/* Campos do evento — renderiza o booking ativo */}
-            {cartBookings.map((b) => {
-              if (cartBookings.length > 1 && activeEventTab !== b.id) return null
-              const room = rooms.find(r => r.id === b.roomId)
-              const ed = eventDataMap[b.id] || emptyEventData
+            {/* Campos do evento — renderiza o grupo ativo */}
+            {eventGroups.map((g) => {
+              if (eventGroups.length > 1 && activeEventTab !== g.key) return null
+              const ed = eventDataMap[g.canonicalId] || emptyEventData
               const evInputClass = (name: keyof EventData) => {
-                const err = hasEventError(b.id, name)
+                const err = hasEventError(g.canonicalId, name)
                 const border = err ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
                 return `w-full rounded-md border ${border} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
               }
 
               return (
-                <div key={b.id} className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                <div key={g.key} className="grid grid-cols-1 md:grid-cols-12 gap-4">
                   {/* Info da sala (readonly) */}
                   <div className="md:col-span-4">
                     <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Sala</label>
-                    <input type="text" value={room?.name || ""} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                    <input type="text" value={g.roomName} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
                   </div>
                   <div className="md:col-span-3">
-                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Data</label>
-                    <input type="text" value={b.selectedRange.from?.toLocaleDateString("pt-BR") || ""} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">{g.dates.length > 1 ? "Datas" : "Data"}</label>
+                    <input type="text" value={g.dates.length > 1 ? `${g.dates.length} dias selecionados` : g.dates[0]} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" title={g.dates.join(", ")} />
                   </div>
                   <div className="md:col-span-2.5">
                     <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Inicio</label>
-                    <input type="text" value={b.startTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                    <input type="text" value={g.startTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
                   </div>
                   <div className="md:col-span-2.5">
                     <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Termino</label>
-                    <input type="text" value={b.endTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                    <input type="text" value={g.endTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
                   </div>
 
                   {/* Campos editáveis */}
                   <div className="md:col-span-6">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.nomeEvento} onChange={(e) => handleEventChange(b.id, "nomeEvento", e.target.value)} placeholder="Ex: Workshop de Tecnologia" className={evInputClass("nomeEvento")} />
-                    {hasEventError(b.id, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                    <input type="text" value={ed.nomeEvento} onChange={(e) => handleEventChange(g.canonicalId, "nomeEvento", e.target.value)} placeholder="Ex: Workshop de Tecnologia" className={evInputClass("nomeEvento")} />
+                    {hasEventError(g.canonicalId, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-6">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.finalidadeEvento} onChange={(e) => handleEventChange(b.id, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento, Reunião, Palestra..." className={evInputClass("finalidadeEvento")} />
-                    {hasEventError(b.id, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                    <input type="text" value={ed.finalidadeEvento} onChange={(e) => handleEventChange(g.canonicalId, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento, Reunião, Palestra..." className={evInputClass("finalidadeEvento")} />
+                    {hasEventError(g.canonicalId, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-3">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes</label>
-                    <input type="text" inputMode="numeric" value={ed.participantes} onChange={(e) => handleEventChange(b.id, "participantes", e.target.value)} placeholder="Ex: 50" className={evInputClass("participantes")} />
+                    <input type="text" inputMode="numeric" value={ed.participantes} onChange={(e) => handleEventChange(g.canonicalId, "participantes", e.target.value)} placeholder="Ex: 50" className={evInputClass("participantes")} />
                   </div>
                   <div className="md:col-span-4">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.responsavelLocal} onChange={(e) => handleEventChange(b.id, "responsavelLocal", e.target.value)} placeholder="Nome de quem estará presente" className={evInputClass("responsavelLocal")} />
-                    {hasEventError(b.id, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                    <input type="text" value={ed.responsavelLocal} onChange={(e) => handleEventChange(g.canonicalId, "responsavelLocal", e.target.value)} placeholder="Nome de quem estará presente" className={evInputClass("responsavelLocal")} />
+                    {hasEventError(g.canonicalId, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-5">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel <span className="text-red-500">*</span></label>
-                    <input type="tel" inputMode="numeric" value={ed.contatoLocal} onChange={(e) => handleEventChange(b.id, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={evInputClass("contatoLocal")} />
-                    {hasEventError(b.id, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                    <input type="tel" inputMode="numeric" value={ed.contatoLocal} onChange={(e) => handleEventChange(g.canonicalId, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={evInputClass("contatoLocal")} />
+                    {hasEventError(g.canonicalId, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
                   </div>
                   <div className="md:col-span-12">
                     <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informacoes adicionais</label>
-                    <textarea value={ed.observacoes} onChange={(e) => handleEventChange(b.id, "observacoes", e.target.value)} rows={2} placeholder="Necessidades especiais, equipamentos extras..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none" />
+                    <textarea value={ed.observacoes} onChange={(e) => handleEventChange(g.canonicalId, "observacoes", e.target.value)} rows={2} placeholder="Necessidades especiais, equipamentos extras..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none" />
                   </div>
                 </div>
               )

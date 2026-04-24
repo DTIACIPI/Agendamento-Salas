@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { TIME_OPTIONS, isSlotOccupied, isRangeAvailable } from '@/components/booking-calendar'
+import { TIME_OPTIONS, isSlotOccupied, isRangeAvailable, generateTimeOptions } from '@/components/booking-calendar'
 import type { OccupiedSlot } from '@/app/page'
 
 // ═══════════════════════════════════════════════════════════
@@ -138,5 +138,87 @@ describe('isRangeAvailable', () => {
 
   it('retorna true quando range começa no fim exato do slot', () => {
     expect(isRangeAvailable(date, '12:00', '13:00', slots)).toBe(true)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// isSlotOccupied com cleaningBuffer
+// ═══════════════════════════════════════════════════════════
+describe('isSlotOccupied com cleaningBuffer', () => {
+  const date = new Date(2026, 3, 8)
+
+  const slots: OccupiedSlot[] = [
+    { date: '2026-04-08', startTime: '10:00', endTime: '12:00' },
+  ]
+
+  it('sem buffer, 12:00 está livre (fim exato do slot)', () => {
+    expect(isSlotOccupied(date, '12:00', slots, 0)).toBe(false)
+  })
+
+  it('com buffer de 15min, 12:00 está ocupado (dentro do buffer)', () => {
+    expect(isSlotOccupied(date, '12:00', slots, 15)).toBe(true)
+  })
+
+  it('com buffer de 30min, 12:00 está ocupado', () => {
+    expect(isSlotOccupied(date, '12:00', slots, 30)).toBe(true)
+  })
+
+  it('com buffer de 15min, 12:30 está livre (fora do buffer)', () => {
+    expect(isSlotOccupied(date, '12:30', slots, 15)).toBe(false)
+  })
+
+  it('com buffer de 30min, 12:30 está livre (fim exato do buffer)', () => {
+    expect(isSlotOccupied(date, '12:30', slots, 30)).toBe(false)
+  })
+})
+
+// ═══════════════════════════════════════════════════════════
+// isRangeAvailable com cleaningBuffer
+// ═══════════════════════════════════════════════════════════
+describe('isRangeAvailable com cleaningBuffer', () => {
+  const date = new Date(2026, 3, 8)
+
+  const slots: OccupiedSlot[] = [
+    { date: '2026-04-08', startTime: '10:00', endTime: '12:00' },
+  ]
+
+  it('sem buffer, 09:00-10:00 é válido (termina no início do slot)', () => {
+    expect(isRangeAvailable(date, '09:00', '10:00', slots, TIME_OPTIONS, 0)).toBe(true)
+  })
+
+  it('com buffer de 15min, 09:00-10:00 é inválido (buffer 10:15 invade slot 10:00)', () => {
+    expect(isRangeAvailable(date, '09:00', '10:00', slots, TIME_OPTIONS, 15)).toBe(false)
+  })
+
+  it('com buffer de 15min, 08:00-09:30 é válido (buffer 09:45 não chega em 10:00)', () => {
+    expect(isRangeAvailable(date, '08:00', '09:30', slots, TIME_OPTIONS, 15)).toBe(true)
+  })
+
+  it('sem buffer, 12:00-14:00 é válido (começa no fim do slot)', () => {
+    expect(isRangeAvailable(date, '12:00', '14:00', slots, TIME_OPTIONS, 0)).toBe(true)
+  })
+
+  it('com buffer de 15min, 12:00-14:00 é inválido (slot estendido até 12:15)', () => {
+    expect(isRangeAvailable(date, '12:00', '14:00', slots, TIME_OPTIONS, 15)).toBe(false)
+  })
+
+  it('com buffer de 15min, 12:30-14:00 é válido (começa após buffer do slot)', () => {
+    expect(isRangeAvailable(date, '12:30', '14:00', slots, TIME_OPTIONS, 15)).toBe(true)
+  })
+
+  it('cenário do bug: slot 08:00-10:00, novo 07:00-08:00 com buffer 15min', () => {
+    const slotsB: OccupiedSlot[] = [
+      { date: '2026-04-08', startTime: '08:00', endTime: '10:00' },
+    ]
+    const customOptions = generateTimeOptions('07:00', '22:00')
+    expect(isRangeAvailable(date, '07:00', '08:00', slotsB, customOptions, 15)).toBe(false)
+  })
+
+  it('cenário do bug: slot 07:00-07:30, novo 07:00-08:00 sem buffer', () => {
+    const slotsC: OccupiedSlot[] = [
+      { date: '2026-04-08', startTime: '07:00', endTime: '07:30' },
+    ]
+    const customOptions = generateTimeOptions('07:00', '22:00')
+    expect(isRangeAvailable(date, '07:00', '08:00', slotsC, customOptions, 0)).toBe(false)
   })
 })

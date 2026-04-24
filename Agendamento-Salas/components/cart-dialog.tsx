@@ -16,7 +16,7 @@ import { toast } from "sonner"
 import Image from "next/image"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { generateTimeOptions, isSlotOccupied } from "@/components/booking-calendar"
+import { generateTimeOptions, isSlotOccupied, isRangeAvailable } from "@/components/booking-calendar"
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
@@ -251,7 +251,7 @@ export function CartDialog({
           headers: { "Content-Type": "application/json; charset=utf-8" },
           body: JSON.stringify({
             cnpj: cleanCnpj,
-            coupon_discount_pct: appliedCoupon?.discount_type === "percentage" ? appliedCoupon.discount_value : 0,
+            coupon_discount_pct: 0,
             reservas: cartBookings.map(b => ({
               space_id: b.roomId,
               date: b.selectedRange.from ? b.selectedRange.from.toISOString().split('T')[0] : null,
@@ -274,7 +274,8 @@ export function CartDialog({
     }, 600)
 
     return () => clearTimeout(timer)
-  }, [step, cnpj, isCnpjValidValue, cartBookings, assemblyByRoom, appliedCoupon])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, cnpj, isCnpjValidValue, cartBookings, assemblyByRoom])
 
   const handleProsseguir = async () => {
     setIsValidating(true)
@@ -502,23 +503,31 @@ export function CartDialog({
                                   {roomBookings.map((b) => {
                                     const isEditing = editingId === b.id
 
+                                    const roomBuffer = room.cleaning_buffer ?? 0
+
                                     const startOptions = dynamicTimeOptions.slice(0, -1).map(time => {
-                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots)
+                                      const occupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, time, roomOccupiedSlots, roomBuffer)
                                       return { time, disabled: !!occupied }
                                     })
+
+                                    const editStartOccupied = !!(editStartTime && b.selectedRange.from && isSlotOccupied(b.selectedRange.from, editStartTime, roomOccupiedSlots, roomBuffer))
 
                                     const getEndOptions = (start: string) => {
                                       const startIdx = dynamicTimeOptions.indexOf(start)
                                       if (startIdx === -1) return []
-                                      const options = []
+                                      const options: { time: string; disabled: boolean }[] = []
+                                      let hitBlock = false
                                       for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
                                         const time = dynamicTimeOptions[i]
-                                        const isOccupied = b.selectedRange.from && isSlotOccupied(b.selectedRange.from, dynamicTimeOptions[i - 1], roomOccupiedSlots)
-                                        options.push({ time, disabled: !!isOccupied })
+                                        if (!hitBlock) {
+                                          const available = b.selectedRange.from && isRangeAvailable(b.selectedRange.from, start, time, roomOccupiedSlots, dynamicTimeOptions, roomBuffer)
+                                          if (!available) hitBlock = true
+                                        }
+                                        options.push({ time, disabled: hitBlock })
                                       }
                                       return options
                                     }
-                                    const endOptionsList = editStartTime ? getEndOptions(editStartTime) : []
+                                    const endOptionsList = editStartTime && !editStartOccupied ? getEndOptions(editStartTime) : []
 
                                     return (
                                       <div
@@ -591,7 +600,10 @@ export function CartDialog({
                                             <select
                                               value={editStartTime}
                                               onChange={(e) => { setEditStartTime(e.target.value); setEditEndTime("") }}
-                                              className="flex-1 min-w-[80px] rounded-md border cursor-pointer bg-white px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none"
+                                              className={cn(
+                                                "flex-1 min-w-[80px] rounded-md border cursor-pointer bg-white px-2 py-1.5 text-xs focus:ring-1 focus:ring-primary outline-none",
+                                                editStartOccupied && "border-red-300"
+                                              )}
                                             >
                                               <option value="">Início</option>
                                               {startOptions.map(opt => (
@@ -601,9 +613,9 @@ export function CartDialog({
                                               ))}
                                             </select>
                                             <select
-                                              value={editEndTime}
+                                              value={editStartOccupied ? "" : editEndTime}
                                               onChange={(e) => setEditEndTime(e.target.value)}
-                                              disabled={!editStartTime}
+                                              disabled={!editStartTime || editStartOccupied}
                                               className="flex-1 min-w-[80px] rounded-md border cursor-pointer bg-white px-2 py-1.5 text-xs disabled:opacity-50 focus:ring-1 focus:ring-primary outline-none"
                                             >
                                               <option value="">Término</option>
@@ -613,6 +625,12 @@ export function CartDialog({
                                                 </option>
                                               ))}
                                             </select>
+                                            {editStartOccupied && (
+                                              <div className="flex items-center gap-1 w-full">
+                                                <AlertCircle className="size-3 text-red-500 shrink-0" />
+                                                <span className="text-[10px] text-red-600">Horário de início indisponível. Selecione outro.</span>
+                                              </div>
+                                            )}
                                             <div className="flex items-center gap-1 ml-auto">
                                               <Button
                                                 variant="ghost"

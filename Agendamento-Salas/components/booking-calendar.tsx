@@ -68,7 +68,8 @@ const timeToMinutes = (time: string): number => {
 export function isSlotOccupied(
   date: Date,
   time: string,
-  occupiedSlots: OccupiedSlot[]
+  occupiedSlots: OccupiedSlot[],
+  cleaningBuffer: number = 0
 ): boolean {
   if (!date || !time) return false;
 
@@ -78,7 +79,7 @@ export function isSlotOccupied(
   for (const slot of occupiedSlots) {
     if (slot.date === dateKey) {
       const startInMinutes = timeToMinutes(slot.startTime);
-      const endInMinutes = timeToMinutes(slot.endTime);
+      const endInMinutes = timeToMinutes(slot.endTime) + cleaningBuffer;
 
       if (timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes) {
         return true;
@@ -93,14 +94,25 @@ export function isRangeAvailable(
   start: string,
   end: string,
   occupiedSlots: OccupiedSlot[],
-  timeOptions: string[] = TIME_OPTIONS
+  timeOptions: string[] = TIME_OPTIONS,
+  cleaningBuffer: number = 0
 ): boolean {
   const startIdx = timeOptions.indexOf(start);
   const endIdx = timeOptions.indexOf(end);
   if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
 
-  for (let i = startIdx; i < endIdx; i++) {
-    if (isSlotOccupied(date, timeOptions[i], occupiedSlots)) return false;
+  const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const rangeStart = timeToMinutes(start);
+  const rangeEnd = timeToMinutes(end) + cleaningBuffer;
+
+  for (const slot of occupiedSlots) {
+    if (slot.date === dateKey) {
+      const slotStart = timeToMinutes(slot.startTime);
+      const slotEnd = timeToMinutes(slot.endTime) + cleaningBuffer;
+      if (rangeStart < slotEnd && rangeEnd > slotStart) {
+        return false;
+      }
+    }
   }
   return true;
 }
@@ -730,23 +742,37 @@ export function BookingCalendar({
                   const isUnsaved = unsavedIds.includes(item.id)
                   const isLast = itemIdx === group.items.length - 1
 
+                  const roomBuffer = room.cleaning_buffer ?? 0;
+
                   const itemStartOptions = isCurrentRoom ? dynamicTimeOptions.slice(0, -1).map(time => {
-                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots);
+                    const occupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, time, occupiedSlots, roomBuffer);
                     return { time, disabled: !!occupied };
                   }) : [];
 
                   const getItemEndOptions = (start: string) => {
+                    if (!item.selectedRange.from) return [];
                     const startIdx = dynamicTimeOptions.indexOf(start);
                     if (startIdx === -1) return [];
                     const options = [];
+                    let hitBlock = false;
                     for (let i = startIdx + 1; i < dynamicTimeOptions.length; i++) {
                       const time = dynamicTimeOptions[i];
-                      const isOccupied = item.selectedRange.from && isSlotOccupied(item.selectedRange.from, dynamicTimeOptions[i - 1], occupiedSlots);
-                      options.push({ time, disabled: !!isOccupied });
+                      if (hitBlock) {
+                        options.push({ time, disabled: true });
+                        continue;
+                      }
+                      const available = isRangeAvailable(item.selectedRange.from, start, time, occupiedSlots, dynamicTimeOptions, roomBuffer);
+                      if (!available) {
+                        hitBlock = true;
+                        options.push({ time, disabled: true });
+                      } else {
+                        options.push({ time, disabled: false });
+                      }
                     }
                     return options;
                   };
-                  const itemEndOptions = isCurrentRoom && item.startTime ? getItemEndOptions(item.startTime) : [];
+                  const isStartOccupied = !!(item.startTime && item.selectedRange.from && isSlotOccupied(item.selectedRange.from, item.startTime, occupiedSlots, roomBuffer));
+                  const itemEndOptions = isCurrentRoom && item.startTime && !isStartOccupied ? getItemEndOptions(item.startTime) : [];
 
                   return (isCurrentRoom && !item.confirmedToCart) ? (
                     <div
@@ -754,7 +780,7 @@ export function BookingCalendar({
                       className={cn(
                         "flex flex-col gap-2 px-3 py-2.5 text-sm",
                         !isLast && "border-b border-border/40",
-                        item.hasConflict && "bg-red-50/50"
+                        (item.hasConflict || isStartOccupied) && "bg-red-50/50"
                       )}
                     >
                       <div className="flex items-start justify-between">
@@ -767,7 +793,12 @@ export function BookingCalendar({
                           <Trash2 className="size-3.5" />
                         </button>
                       </div>
-                      {item.hasConflict && (
+                      {isStartOccupied && (
+                        <span className="text-xs text-red-600 font-medium leading-tight">
+                          Horário de início indisponível. Selecione outro horário.
+                        </span>
+                      )}
+                      {item.hasConflict && !isStartOccupied && (
                         <span className="text-xs text-red-600 font-medium leading-tight">
                           O horário selecionado não está disponível.
                         </span>
@@ -776,9 +807,12 @@ export function BookingCalendar({
                         <div className="grid grid-cols-2 gap-2">
                           <select
                             value={item.startTime}
-                            onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "", hasConflict: false })}
+                            onChange={(e) => onUpdateBooking(item.id, { startTime: e.target.value, endTime: "" })}
                             disabled={availabilityLoading}
-                            className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm"
+                            className={cn(
+                              "w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm",
+                              isStartOccupied && "border-red-300"
+                            )}
                           >
                             <option value="">Início</option>
                             {itemStartOptions.map((opt) => (
@@ -786,9 +820,9 @@ export function BookingCalendar({
                             ))}
                           </select>
                           <select
-                            value={item.endTime}
-                            onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value, hasConflict: false })}
-                            disabled={!item.startTime || availabilityLoading}
+                            value={isStartOccupied ? "" : item.endTime}
+                            onChange={(e) => onUpdateBooking(item.id, { endTime: e.target.value })}
+                            disabled={!item.startTime || isStartOccupied || availabilityLoading}
                             className="w-full rounded-md border cursor-pointer bg-background px-2 py-1.5 text-sm disabled:opacity-50"
                           >
                             <option value="">Término</option>

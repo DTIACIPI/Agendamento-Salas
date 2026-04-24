@@ -432,6 +432,21 @@ export default function Home() {
             systemSettings
           )
           updatedItem.price = priceData.finalPrice
+
+          if (updatedItem.startTime && updatedItem.endTime && updatedItem.selectedRange.from) {
+            const roomOccupied = occupiedSlotsByRoom[item.roomId] || []
+            const buffer = roomForBooking.cleaning_buffer ?? 0
+            updatedItem.hasConflict = !isRangeAvailable(
+              updatedItem.selectedRange.from,
+              updatedItem.startTime,
+              updatedItem.endTime,
+              roomOccupied,
+              dynamicTimeOptions,
+              buffer
+            )
+          } else {
+            updatedItem.hasConflict = false
+          }
         }
         return updatedItem
       }
@@ -443,7 +458,7 @@ export default function Home() {
     } else {
       setUnsavedIds((prev) => prev.filter((uId) => uId !== id))
     }
-  }, [isAssociado, associadoMonths, rooms, systemSettings])
+  }, [isAssociado, associadoMonths, rooms, systemSettings, occupiedSlotsByRoom, dynamicTimeOptions])
 
   const handleDaySelect = useCallback((date: Date) => {
     const performSelect = async () => { 
@@ -500,7 +515,8 @@ export default function Home() {
             }
           }
 
-          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots, dynamicTimeOptions)) {
+          const buffer = selectedRoom.cleaning_buffer ?? 0
+          if (!isRangeAvailable(date, sTime, eTime, daySpecificOccupiedSlots, dynamicTimeOptions, buffer)) {
             hasConflict = true
           }
 
@@ -609,7 +625,8 @@ export default function Home() {
         const dateStr = item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : null;
         const dayOccupiedSlots = dateStr ? availabilityMap.get(dateStr) || [] : [];
         
-        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots, dynamicTimeOptions));
+        const bufferMin = selectedRoom.cleaning_buffer ?? 0;
+        const hasConflict = !!(item.selectedRange.from && !isRangeAvailable(item.selectedRange.from, start, end, dayOccupiedSlots, dynamicTimeOptions, bufferMin));
 
         const priceData = calculateRoomPrice(selectedRoom, item.selectedRange.from, start, end, isAssociado ? associadoMonths : 0, item.selectedRange.from && item.selectedRange.to ? { from: item.selectedRange.from, to: item.selectedRange.to } : undefined, systemSettings);
 

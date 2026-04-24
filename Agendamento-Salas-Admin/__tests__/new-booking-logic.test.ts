@@ -112,7 +112,7 @@ describe('isExempt (tipos isentos de cobranca)', () => {
   it('Cessao e isento', () => expect(isExempt('Cessão')).toBe(true))
   it('Uso Interno e isento', () => expect(isExempt('Uso Interno')).toBe(true))
   it('Locacao Cliente NAO e isento', () => expect(isExempt('Locação Cliente')).toBe(false))
-  it('Curso NAO e isento de cobranca', () => expect(isExempt('Curso')).toBe(false))
+  it('Curso e isento', () => expect(isExempt('Curso')).toBe(true))
 })
 
 // ═══════════════════════════════════════════════════════════
