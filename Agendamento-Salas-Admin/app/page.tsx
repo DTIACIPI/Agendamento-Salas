@@ -46,12 +46,14 @@ export default function Page() {
   )
 }
 
+const VALID_TABS: TabId[] = ["dashboard", "reservas", "agenda", "salas", "cupons", "contratos", "empresas", "usuarios", "config"]
+const SUPER_ADMIN_TABS: TabId[] = ["usuarios"]
+const BOOKINGS_PER_PAGE = 10
+const COMPANIES_PER_PAGE = 10
+
 function AdminDashboard() {
   const { user, isSuperAdmin } = useAuth()
 
-  // Layout states
-  const VALID_TABS: TabId[] = ["dashboard", "reservas", "agenda", "salas", "cupons", "contratos", "empresas", "usuarios", "config"]
-  const SUPER_ADMIN_TABS: TabId[] = ["usuarios"]
   const [activeTab, setActiveTab] = useState<TabId | null>(null)
   useEffect(() => {
     const hash = window.location.hash.replace("#", "") as TabId
@@ -88,7 +90,6 @@ function AdminDashboard() {
   const [isBookingsLoading, setIsBookingsLoading] = useState(true)
   const [bookingsTotal, setBookingsTotal] = useState(0)
   const [bookingsPage, setBookingsPage] = useState(1)
-  const BOOKINGS_PER_PAGE = 10
 
   // Data states: companies (API)
   const [companies, setCompanies] = useState<Company[]>([])
@@ -96,7 +97,6 @@ function AdminDashboard() {
   const [companiesPage, setCompaniesPage] = useState(1)
   const [companiesTotalPages, setCompaniesTotalPages] = useState(1)
   const [companiesTotalRecords, setCompaniesTotalRecords] = useState(0)
-  const COMPANIES_PER_PAGE = 10
 
   // Data states: users (API)
   const [users, setUsers] = useState<User[]>([])

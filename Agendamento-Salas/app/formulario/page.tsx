@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useMemo, useState } from "react"
 import { useSearchParams, useRouter } from "next/navigation"
 import { Header } from "@/components/header"
-import { cn, formatDateToISO, API_BASE_URL } from "@/lib/utils"
+import { cn, formatDateToISO, formatCurrency, API_BASE_URL } from "@/lib/utils"
 import Image from "next/image"
 import { type Room } from "@/components/room-list"
 import type { BookingItem } from "@/app/page"
@@ -304,7 +304,10 @@ function FormularioContent() {
     return `w-full rounded-md border ${errorBorder} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
   }
 
-  const cartBookings = bookings.filter(b => cartRooms.includes(b.roomId))
+  const cartBookings = useMemo(
+    () => bookings.filter(b => cartRooms.includes(b.roomId)),
+    [bookings, cartRooms]
+  )
 
   const eventGroups = useMemo(() => {
     const groups: { key: string; roomId: string; roomName: string; bookingIds: string[]; canonicalId: string; dates: string[]; startTime: string; endTime: string }[] = []
@@ -399,28 +402,28 @@ function FormularioContent() {
 
     setIsSubmitting(true)
 
+    const totalSubtotalHoras = appliedCoupon?.discount_type === "fixed"
+      ? cartBookings.reduce((sum, b) => {
+          const rn = rooms.find(r => r.id === b.roomId)?.name || ""
+          const rd = pricingData?.detalhes.find(d => d.space_name === rn)
+          return sum + (rd ? rd.subtotal - rd.descontos : b.price)
+        }, 0)
+      : 0
+
     const requests = cartBookings.map(item => {
       const roomName = rooms.find(r => r.id === item.roomId)?.name || ""
       const roomPricingDetail = pricingData?.detalhes.find(d => d.space_name === roomName)
 
-      // Usar valores já calculados pela API quando disponíveis
       const itemSubtotal = roomPricingDetail?.subtotal ?? item.price
       const itemDesconto = roomPricingDetail?.descontos ?? 0
       const itemTaxaMontagem = roomPricingDetail?.taxa_montagem ?? 0
       const subtotalAposDescontoItem = itemSubtotal - itemDesconto
 
-      // Cupom aplica APENAS sobre subtotal das horas, NUNCA sobre taxa_montagem
       let itemCouponDiscount = 0
       if (appliedCoupon) {
         if (appliedCoupon.discount_type === "percentage") {
           itemCouponDiscount = subtotalAposDescontoItem * (appliedCoupon.discount_value / 100)
         } else {
-          // Fixo: proporcional ao peso deste item no total de horas
-          const totalSubtotalHoras = cartBookings.reduce((sum, b) => {
-            const rn = rooms.find(r => r.id === b.roomId)?.name || ""
-            const rd = pricingData?.detalhes.find(d => d.space_name === rn)
-            return sum + (rd ? rd.subtotal - rd.descontos : b.price)
-          }, 0)
           const proportion = totalSubtotalHoras > 0 ? subtotalAposDescontoItem / totalSubtotalHoras : 0
           itemCouponDiscount = Math.min(appliedCoupon.discount_value * proportion, subtotalAposDescontoItem)
         }
@@ -501,7 +504,7 @@ function FormularioContent() {
     }
   }
 
-  const formatMoney = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const formatMoney = formatCurrency
 
   // Subtotal = soma dos subtotais (horas) de cada sala
   // Taxa de montagem fica fora do cálculo de cupom

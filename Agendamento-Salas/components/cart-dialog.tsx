@@ -11,15 +11,12 @@ import {
 } from "lucide-react"
 import type { BookingItem, OccupiedSlot } from "@/app/page"
 import type { Room } from "@/components/room-list"
-import { cn, isValidCNPJ, API_BASE_URL, type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
+import { cn, isValidCNPJ, API_BASE_URL, formatCurrency, type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
 import { toast } from "sonner"
 import Image from "next/image"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
 import { generateTimeOptions, isSlotOccupied, isRangeAvailable } from "@/components/booking-calendar"
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value)
 
 const formatBookingDate = (date: Date | undefined) => {
   if (!date) return "—"

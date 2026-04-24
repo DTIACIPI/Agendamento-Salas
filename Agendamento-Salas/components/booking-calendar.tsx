@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react"
 import type { OccupiedSlot } from "@/app/page"
-import { type SystemSettings, DEFAULT_SETTINGS, addBusinessDays } from "@/lib/utils"
+import { type SystemSettings, DEFAULT_SETTINGS, addBusinessDays, formatDateToISO } from "@/lib/utils"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
@@ -15,7 +15,6 @@ import {
   Wifi,
   Monitor,
   MapPin,
-  Plus,
   Trash2,
 
   Save,
@@ -73,7 +72,7 @@ export function isSlotOccupied(
 ): boolean {
   if (!date || !time) return false;
 
-  const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const dateKey = formatDateToISO(date);
   const timeInMinutes = timeToMinutes(time);
 
   for (const slot of occupiedSlots) {
@@ -101,7 +100,7 @@ export function isRangeAvailable(
   const endIdx = timeOptions.indexOf(end);
   if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
 
-  const dateKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  const dateKey = formatDateToISO(date);
   const rangeStart = timeToMinutes(start);
   const rangeEnd = timeToMinutes(end) + cleaningBuffer;
 
@@ -323,8 +322,7 @@ export function BookingCalendar({
   }, [occupiedSlots, dynamicTimeOptions]);
 
   const isDateFullyBooked = useCallback((date: Date) => {
-    const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-    return fullyBookedDatesSet.has(key);
+    return fullyBookedDatesSet.has(formatDateToISO(date));
   }, [fullyBookedDatesSet]);
 
   // Antecedencia minima de 3 dias uteis (seg-sex)
