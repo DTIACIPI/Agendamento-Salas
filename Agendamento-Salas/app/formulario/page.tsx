@@ -72,21 +72,26 @@ function FormularioContent() {
     opcaoPagamento: "",
   })
 
-  // Dados de evento por booking (indexado por booking.id)
-  interface EventData {
+  // Dados de evento por slot/dia (indexado por booking.id — cada booking = 1 dia)
+  interface SlotEventData {
     nomeEvento: string
     finalidadeEvento: string
     participantes: string
+  }
+  const emptySlotEvent: SlotEventData = { nomeEvento: "", finalidadeEvento: "", participantes: "" }
+  const [slotEventMap, setSlotEventMap] = useState<Record<string, SlotEventData>>({})
+
+  // Dados de contato por sala (indexado por roomId)
+  interface RoomContactData {
     responsavelLocal: string
     contatoLocal: string
     observacoes: string
   }
-  const emptyEventData: EventData = {
-    nomeEvento: "", finalidadeEvento: "", participantes: "",
-    responsavelLocal: "", contatoLocal: "", observacoes: "",
-  }
-  const [eventDataMap, setEventDataMap] = useState<Record<string, EventData>>({})
-  const [activeEventTab, setActiveEventTab] = useState<string>("")
+  const emptyRoomContact: RoomContactData = { responsavelLocal: "", contatoLocal: "", observacoes: "" }
+  const [roomContactMap, setRoomContactMap] = useState<Record<string, RoomContactData>>({})
+
+  // Aba ativa de dia dentro de cada sala (roomId → bookingId)
+  const [activeDayTab, setActiveDayTab] = useState<Record<string, string>>({})
 
   useEffect(() => {
     // 1. Recupera as salas e horários selecionados
@@ -209,18 +214,30 @@ function FormularioContent() {
     setIsHydrated(true)
   }, [])
 
-  // Inicializar eventDataMap quando bookings carregam
+  // Inicializar slotEventMap e roomContactMap quando bookings/cartRooms carregam
   useEffect(() => {
     if (bookings.length === 0) return
-    setEventDataMap(prev => {
+    setSlotEventMap(prev => {
       const next = { ...prev }
       for (const b of bookings) {
-        if (!next[b.id]) next[b.id] = { ...emptyEventData }
+        if (!next[b.id]) next[b.id] = { ...emptySlotEvent }
       }
       return next
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookings])
+
+  useEffect(() => {
+    if (cartRooms.length === 0) return
+    setRoomContactMap(prev => {
+      const next = { ...prev }
+      for (const roomId of cartRooms) {
+        if (!next[roomId]) next[roomId] = { ...emptyRoomContact }
+      }
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartRooms])
 
   const maskPhone = (v: string) => {
     let d = v.replace(/\D/g, "").slice(0, 11)
@@ -251,15 +268,24 @@ function FormularioContent() {
     setFormData(prev => ({ ...prev, [name]: value }));
   }
 
-  // Handler para campos de evento por booking
-  const handleEventChange = (bookingId: string, name: keyof EventData, value: string) => {
-    setEventDataMap(prev => ({
+  // Handler para campos de evento por slot/dia
+  const handleSlotEventChange = (bookingId: string, name: keyof SlotEventData, value: string) => {
+    setSlotEventMap(prev => ({
       ...prev,
       [bookingId]: {
-        ...(prev[bookingId] || emptyEventData),
-        [name]: name === "contatoLocal" ? maskPhone(value)
-               : name === "participantes" ? value.replace(/\D/g, "")
-               : value,
+        ...(prev[bookingId] || emptySlotEvent),
+        [name]: name === "participantes" ? value.replace(/\D/g, "") : value,
+      },
+    }))
+  }
+
+  // Handler para campos de contato por sala
+  const handleRoomContactChange = (roomId: string, name: keyof RoomContactData, value: string) => {
+    setRoomContactMap(prev => ({
+      ...prev,
+      [roomId]: {
+        ...(prev[roomId] || emptyRoomContact),
+        [name]: name === "contatoLocal" ? maskPhone(value) : value,
       },
     }))
   }
@@ -283,9 +309,12 @@ function FormularioContent() {
     { key: "opcaoPagamento", label: "Opção de Pagamento" },
   ]
 
-  const requiredEventFields: { key: keyof EventData; label: string }[] = [
+  const requiredSlotEventFields: { key: keyof SlotEventData; label: string }[] = [
     { key: "nomeEvento", label: "Nome do Evento" },
     { key: "finalidadeEvento", label: "Finalidade do Evento" },
+  ]
+
+  const requiredRoomContactFields: { key: keyof RoomContactData; label: string }[] = [
     { key: "responsavelLocal", label: "Responsável no dia do evento" },
     { key: "contatoLocal", label: "Contato do Responsável no dia" },
   ]
@@ -293,10 +322,15 @@ function FormularioContent() {
   const isLocked = (name: string) => lockedFields.has(name)
   const isFieldRequired = (name: string) => requiredFields.some(f => f.key === name)
   const hasError = (name: string) => showErrors && isFieldRequired(name) && !formData[name as keyof typeof formData]?.trim()
-  const hasEventError = (canonicalId: string, name: keyof EventData) => {
+  const hasSlotEventError = (bookingId: string, name: keyof SlotEventData) => {
     if (!showErrors) return false
-    if (!requiredEventFields.some(f => f.key === name)) return false
-    return !(eventDataMap[canonicalId]?.[name]?.trim())
+    if (!requiredSlotEventFields.some(f => f.key === name)) return false
+    return !(slotEventMap[bookingId]?.[name]?.trim())
+  }
+  const hasRoomContactError = (roomId: string, name: keyof RoomContactData) => {
+    if (!showErrors) return false
+    if (!requiredRoomContactFields.some(f => f.key === name)) return false
+    return !(roomContactMap[roomId]?.[name]?.trim())
   }
   const inputClass = (name: string) => {
     if (isLocked(name)) return "w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm"
@@ -309,175 +343,170 @@ function FormularioContent() {
     [bookings, cartRooms]
   )
 
-  const eventGroups = useMemo(() => {
-    const groups: { key: string; roomId: string; roomName: string; bookingIds: string[]; canonicalId: string; dates: string[]; startTime: string; endTime: string }[] = []
-    const roomMap = new Map<string, typeof cartBookings>()
-    for (const b of cartBookings) {
-      const list = roomMap.get(b.roomId) || []
-      list.push(b)
-      roomMap.set(b.roomId, list)
-    }
-    for (const [roomId, rBookings] of roomMap) {
-      const roomName = rooms.find(r => r.id === roomId)?.name || "Sala"
-      const allSameTime = rBookings.length > 1 && rBookings.every(
-        b => b.startTime === rBookings[0].startTime && b.endTime === rBookings[0].endTime
-      )
-      if (allSameTime) {
-        groups.push({
-          key: `${roomId}-all`,
-          roomId,
-          roomName,
-          bookingIds: rBookings.map(b => b.id),
-          canonicalId: rBookings[0].id,
-          dates: rBookings.map(b => b.selectedRange.from?.toLocaleDateString("pt-BR") || ""),
-          startTime: rBookings[0].startTime,
-          endTime: rBookings[0].endTime,
-        })
-      } else {
-        for (const b of rBookings) {
-          groups.push({
-            key: b.id,
-            roomId,
-            roomName,
-            bookingIds: [b.id],
-            canonicalId: b.id,
-            dates: [b.selectedRange.from?.toLocaleDateString("pt-BR") || ""],
-            startTime: b.startTime,
-            endTime: b.endTime,
-          })
-        }
-      }
+  const roomGroups = useMemo(() => {
+    const groups: { roomId: string; roomName: string; dayBookings: typeof cartBookings }[] = []
+    const seen = new Set<string>()
+    for (const roomId of cartRooms) {
+      if (seen.has(roomId)) continue
+      seen.add(roomId)
+      const dayBookings = cartBookings.filter(b => b.roomId === roomId)
+      if (dayBookings.length === 0) continue
+      const room = rooms.find(r => r.id === roomId)
+      groups.push({ roomId, roomName: room?.name || "Sala", dayBookings })
     }
     return groups
-  }, [cartBookings, rooms])
+  }, [cartBookings, cartRooms, rooms])
 
-  const canonicalIdMap = useMemo(() => {
-    const map: Record<string, string> = {}
-    for (const g of eventGroups) {
-      for (const bId of g.bookingIds) {
-        map[bId] = g.canonicalId
-      }
-    }
-    return map
-  }, [eventGroups])
-
-  // Definir aba ativa como o primeiro grupo
+  // Definir aba de dia ativa para cada sala
   useEffect(() => {
-    if (eventGroups.length === 0) return
-    setActiveEventTab(prev => {
-      if (prev && eventGroups.some(g => g.key === prev)) return prev
-      return eventGroups[0]?.key || ""
+    if (roomGroups.length === 0) return
+    setActiveDayTab(prev => {
+      const next = { ...prev }
+      for (const rg of roomGroups) {
+        if (!next[rg.roomId] || !rg.dayBookings.some(b => b.id === next[rg.roomId])) {
+          next[rg.roomId] = rg.dayBookings[0]?.id || ""
+        }
+      }
+      return next
     })
-  }, [eventGroups])
+  }, [roomGroups])
 
-  const allEventsValid = eventGroups.every(g => {
-    const ed = eventDataMap[g.canonicalId]
-    if (!ed) return false
-    return requiredEventFields.every(f => ed[f.key]?.trim() !== "")
+  const allSlotsValid = cartBookings.every(b => {
+    const ev = slotEventMap[b.id]
+    if (!ev) return false
+    return requiredSlotEventFields.every(f => ev[f.key]?.trim() !== "")
   })
 
-  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "") && isValidEmail(formData.emailResponsavel) && allEventsValid
+  const allContactsValid = roomGroups.every(rg => {
+    const ct = roomContactMap[rg.roomId]
+    if (!ct) return false
+    return requiredRoomContactFields.every(f => ct[f.key]?.trim() !== "")
+  })
+
+  const isFormValid = requiredFields.every(f => formData[f.key].trim() !== "") && isValidEmail(formData.emailResponsavel) && allSlotsValid && allContactsValid
 
   const handleFinalize = async () => {
     const missing = requiredFields.filter(f => formData[f.key].trim() === "")
-    // Checar campos de evento obrigatórios por grupo
-    const missingEvents: string[] = []
-    for (const g of eventGroups) {
-      const ed = eventDataMap[g.canonicalId]
-      for (const f of requiredEventFields) {
-        if (!ed?.[f.key]?.trim()) {
-          missingEvents.push(`${f.label} (${g.roomName})`)
+    // Checar campos de evento obrigatórios por slot (dia)
+    const missingSlots: string[] = []
+    for (const b of cartBookings) {
+      const ev = slotEventMap[b.id]
+      const roomName = rooms.find(r => r.id === b.roomId)?.name || "Sala"
+      const dateLabel = b.selectedRange.from?.toLocaleDateString("pt-BR") || ""
+      for (const f of requiredSlotEventFields) {
+        if (!ev?.[f.key]?.trim()) {
+          missingSlots.push(`${f.label} (${roomName} — ${dateLabel})`)
         }
       }
     }
-    if (missing.length > 0 || missingEvents.length > 0) {
+    // Checar campos de contato obrigatórios por sala
+    const missingContacts: string[] = []
+    for (const rg of roomGroups) {
+      const ct = roomContactMap[rg.roomId]
+      for (const f of requiredRoomContactFields) {
+        if (!ct?.[f.key]?.trim()) {
+          missingContacts.push(`${f.label} (${rg.roomName})`)
+        }
+      }
+    }
+    if (missing.length > 0 || missingSlots.length > 0 || missingContacts.length > 0) {
       setShowErrors(true)
       setPopup({
         type: "error",
         title: "Preencha todos os campos obrigatórios",
-        description: [...missing.map(f => f.label), ...missingEvents].join(", "),
+        description: [...missing.map(f => f.label), ...missingSlots, ...missingContacts].join(", "),
       })
       return
     }
 
     setIsSubmitting(true)
 
-    const totalSubtotalHoras = appliedCoupon?.discount_type === "fixed"
-      ? cartBookings.reduce((sum, b) => {
-          const rn = rooms.find(r => r.id === b.roomId)?.name || ""
-          const rd = pricingData?.detalhes.find(d => d.space_name === rn)
-          return sum + (rd ? rd.subtotal - rd.descontos : b.price)
-        }, 0)
-      : 0
+    // Agrupa bookings por space_id (1 contrato = 1 espaço)
+    const spaceGroups = new Map<string, typeof cartBookings>()
+    for (const item of cartBookings) {
+      const list = spaceGroups.get(item.roomId) || []
+      list.push(item)
+      spaceGroups.set(item.roomId, list)
+    }
 
-    const requests = cartBookings.map(item => {
-      const roomName = rooms.find(r => r.id === item.roomId)?.name || ""
+    const bookingsArray = Array.from(spaceGroups.entries()).map(([spaceId, items]) => {
+      const roomName = rooms.find(r => r.id === spaceId)?.name || ""
       const roomPricingDetail = pricingData?.detalhes.find(d => d.space_name === roomName)
 
-      const itemSubtotal = roomPricingDetail?.subtotal ?? item.price
+      const itemSubtotal = roomPricingDetail?.subtotal ?? items.reduce((s, b) => s + b.price, 0)
       const itemDesconto = roomPricingDetail?.descontos ?? 0
       const itemTaxaMontagem = roomPricingDetail?.taxa_montagem ?? 0
-      const subtotalAposDescontoItem = itemSubtotal - itemDesconto
+      const subtotalAposDesconto = itemSubtotal - itemDesconto
 
-      let itemCouponDiscount = 0
+      let couponDiscount = 0
       if (appliedCoupon) {
         if (appliedCoupon.discount_type === "percentage") {
-          itemCouponDiscount = subtotalAposDescontoItem * (appliedCoupon.discount_value / 100)
+          couponDiscount = subtotalAposDesconto * (appliedCoupon.discount_value / 100)
         } else {
-          const proportion = totalSubtotalHoras > 0 ? subtotalAposDescontoItem / totalSubtotalHoras : 0
-          itemCouponDiscount = Math.min(appliedCoupon.discount_value * proportion, subtotalAposDescontoItem)
+          const totalAllSpaces = Array.from(spaceGroups.keys()).reduce((sum, sid) => {
+            const rn = rooms.find(r => r.id === sid)?.name || ""
+            const rd = pricingData?.detalhes.find(d => d.space_name === rn)
+            const sItems = spaceGroups.get(sid)!
+            return sum + ((rd ? rd.subtotal - rd.descontos : sItems.reduce((s, b) => s + b.price, 0)))
+          }, 0)
+          const proportion = totalAllSpaces > 0 ? subtotalAposDesconto / totalAllSpaces : 0
+          couponDiscount = Math.min(appliedCoupon.discount_value * proportion, subtotalAposDesconto)
         }
       }
 
-      const finalAmount = subtotalAposDescontoItem - itemCouponDiscount + itemTaxaMontagem
+      const totalAmount = subtotalAposDesconto - couponDiscount + itemTaxaMontagem
+      const contact = roomContactMap[spaceId] || emptyRoomContact
 
-      const payload = {
-        company: {
-          cnpj: cnpj.replace(/\D/g, ""),
-          razao_social: formData.razaoSocial,
-          inscricao_estadual: formData.inscricaoEstadual,
-          cep: formData.cep.replace(/\D/g, ""),
-          endereco: formData.endereco,
-        },
-        user: {
-          name: formData.nomeResponsavel,
-          email: formData.emailResponsavel,
-          phone: formData.telefoneResponsavel.replace(/\D/g, ""),
-          role: formData.cargoResponsavel,
-        },
-        booking: {
-          booking_type: "Locação Cliente",
-          space_id: item.roomId,
-          space_name: roomName,
-          date: item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : "",
-          startTime: item.startTime,
-          endTime: item.endTime,
-          requires_assembly: (assemblyByRoom[item.roomId] || "none") !== "none" ? assemblyByRoom[item.roomId] : null,
-          event_name: eventDataMap[canonicalIdMap[item.id]]?.nomeEvento || "",
-          event_purpose: eventDataMap[canonicalIdMap[item.id]]?.finalidadeEvento || "",
-          estimated_attendees: eventDataMap[canonicalIdMap[item.id]]?.participantes ? parseInt(eventDataMap[canonicalIdMap[item.id]].participantes) : null,
-          onsite_contact_name: eventDataMap[canonicalIdMap[item.id]]?.responsavelLocal || "",
-          onsite_contact_phone: (eventDataMap[canonicalIdMap[item.id]]?.contatoLocal || "").replace(/\D/g, ""),
-          payment_method: formData.opcaoPagamento,
-          total_amount: finalAmount,
-          coupon_code: appliedCoupon?.code || null,
-          coupon_discount: itemCouponDiscount > 0 ? itemCouponDiscount : null,
-          cleaning_buffer: 0,
-        },
+      return {
+        space_id: spaceId,
+        booking_type: "Locação Cliente",
+        total_amount: totalAmount,
+        onsite_contact_name: contact.responsavelLocal,
+        onsite_contact_phone: contact.contatoLocal.replace(/\D/g, ""),
+        payment_method: formData.opcaoPagamento,
+        cleaning_buffer: 0,
+        coupon_code: appliedCoupon?.code || null,
+        coupon_discount: couponDiscount > 0 ? couponDiscount : null,
+        requires_assembly: (assemblyByRoom[spaceId] || "none") !== "none" ? assemblyByRoom[spaceId] : null,
+        slots: items.map(item => {
+          const ev = slotEventMap[item.id] || emptySlotEvent
+          return {
+            date: item.selectedRange.from ? formatDateToISO(item.selectedRange.from) : "",
+            startTime: item.startTime,
+            endTime: item.endTime,
+            slot_event_name: ev.nomeEvento,
+            slot_event_purpose: ev.finalidadeEvento,
+            slot_attendees: ev.participantes ? parseInt(ev.participantes) : null,
+          }
+        }),
       }
+    })
 
-      return fetch(`${API_BASE_URL}/webhook/api/public/bookings`, {
+    const payload = {
+      company: {
+        cnpj: cnpj.replace(/\D/g, ""),
+        razao_social: formData.razaoSocial,
+        inscricao_estadual: formData.inscricaoEstadual,
+        cep: formData.cep.replace(/\D/g, ""),
+        endereco: formData.endereco,
+      },
+      user: {
+        name: formData.nomeResponsavel,
+        email: formData.emailResponsavel,
+        phone: formData.telefoneResponsavel.replace(/\D/g, ""),
+        role: formData.cargoResponsavel,
+      },
+      bookings: bookingsArray,
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/webhook/api/public/bookings`, {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify(payload),
       })
-    })
 
-    try {
-      const responses = await Promise.all(requests)
-      const allOk = responses.every(res => res.ok)
-
-      if (allOk) {
+      if (res.ok) {
         sessionStorage.removeItem("acipi_booking_state")
         sessionStorage.removeItem("acipi_checkout_prep")
         setPopup({
@@ -811,108 +840,137 @@ function FormularioContent() {
           <div className="bg-white p-6 rounded-xl border shadow-sm">
             <h3 className="text-lg font-bold text-[#184689] border-b pb-3 mb-4">Sobre o Evento</h3>
 
-            {eventGroups.length > 1 && (
-              <p className="text-sm text-slate-500 mb-3 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
-                Preencha as informacoes do evento para <strong>cada reserva</strong>. Utilize as abas abaixo para alternar entre elas.
+            {(roomGroups.length > 1 || cartBookings.length > 1) && (
+              <p className="text-sm text-slate-500 mb-4 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                Preencha as informacoes do evento para <strong>cada dia</strong> individualmente. Dias diferentes podem ter eventos distintos.
               </p>
             )}
 
-            {/* Abas por grupo — só mostra se houver mais de 1 */}
-            {eventGroups.length > 1 && (
-              <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
-                {eventGroups.map((g) => {
-                  const isActive = activeEventTab === g.key
-                  const ed = eventDataMap[g.canonicalId]
-                  const hasIncomplete = requiredEventFields.some(f => !ed?.[f.key]?.trim())
-                  return (
-                    <button
-                      key={g.key}
-                      type="button"
-                      onClick={() => setActiveEventTab(g.key)}
-                      className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border ${
-                        isActive
-                          ? "bg-[#184689] text-white border-[#184689]"
-                          : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
-                      }`}
-                    >
-                      <span>{g.roomName}</span>
-                      <span className={`text-[10px] ${isActive ? "text-blue-200" : "text-slate-400"}`}>
-                        {g.dates.length > 1 ? `${g.dates.length} dias` : g.dates[0]} {g.startTime}-{g.endTime}
+            <div className="space-y-6">
+              {roomGroups.map((rg) => {
+                const ct = roomContactMap[rg.roomId] || emptyRoomContact
+                const contactInputClass = (name: keyof RoomContactData) => {
+                  const err = hasRoomContactError(rg.roomId, name)
+                  const border = err ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
+                  return `w-full rounded-md border ${border} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
+                }
+
+                return (
+                  <div key={rg.roomId} className="border border-slate-200 rounded-xl p-5 space-y-4 bg-slate-50/50">
+                    {/* Header da sala */}
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-[#184689]">{rg.roomName}</span>
+                      <span className="text-[10px] font-semibold uppercase bg-slate-200 text-slate-500 px-2 py-0.5 rounded">
+                        {rg.dayBookings.length} {rg.dayBookings.length === 1 ? "dia" : "dias"}
                       </span>
-                      {showErrors && hasIncomplete && (
-                        <span className={`w-2 h-2 rounded-full ${isActive ? "bg-red-300" : "bg-red-500"}`} />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
+                    </div>
 
-            {/* Campos do evento — renderiza o grupo ativo */}
-            {eventGroups.map((g) => {
-              if (eventGroups.length > 1 && activeEventTab !== g.key) return null
-              const ed = eventDataMap[g.canonicalId] || emptyEventData
-              const evInputClass = (name: keyof EventData) => {
-                const err = hasEventError(g.canonicalId, name)
-                const border = err ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
-                return `w-full rounded-md border ${border} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
-              }
+                    {/* Contato — compartilhado por sala */}
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-4">
+                      <div className="md:col-span-5">
+                        <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia <span className="text-red-500">*</span></label>
+                        <input type="text" value={ct.responsavelLocal} onChange={(e) => handleRoomContactChange(rg.roomId, "responsavelLocal", e.target.value)} placeholder="Nome de quem estara presente" className={contactInputClass("responsavelLocal")} />
+                        {hasRoomContactError(rg.roomId, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                      </div>
+                      <div className="md:col-span-4">
+                        <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel <span className="text-red-500">*</span></label>
+                        <input type="tel" inputMode="numeric" value={ct.contatoLocal} onChange={(e) => handleRoomContactChange(rg.roomId, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={contactInputClass("contatoLocal")} />
+                        {hasRoomContactError(rg.roomId, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                      </div>
+                      <div className="md:col-span-3">
+                        <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informacoes adicionais</label>
+                        <textarea value={ct.observacoes} onChange={(e) => handleRoomContactChange(rg.roomId, "observacoes", e.target.value)} rows={1} placeholder="Obs..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none" />
+                      </div>
+                    </div>
 
-              return (
-                <div key={g.key} className="grid grid-cols-1 md:grid-cols-12 gap-4">
-                  {/* Info da sala (readonly) */}
-                  <div className="md:col-span-4">
-                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Sala</label>
-                    <input type="text" value={g.roomName} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">{g.dates.length > 1 ? "Datas" : "Data"}</label>
-                    <input type="text" value={g.dates.length > 1 ? `${g.dates.length} dias selecionados` : g.dates[0]} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" title={g.dates.join(", ")} />
-                  </div>
-                  <div className="md:col-span-2.5">
-                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Inicio</label>
-                    <input type="text" value={g.startTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
-                  </div>
-                  <div className="md:col-span-2.5">
-                    <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Termino</label>
-                    <input type="text" value={g.endTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
-                  </div>
+                    {/* Abas de dia — se houver mais de 1 dia nesta sala */}
+                    {rg.dayBookings.length > 1 && (
+                      <div className="flex gap-1 overflow-x-auto pb-1">
+                        {rg.dayBookings.map((b) => {
+                          const isActive = activeDayTab[rg.roomId] === b.id
+                          const ev = slotEventMap[b.id]
+                          const hasIncomplete = requiredSlotEventFields.some(f => !ev?.[f.key]?.trim())
+                          const dateLabel = b.selectedRange.from?.toLocaleDateString("pt-BR") || ""
+                          return (
+                            <button
+                              key={b.id}
+                              type="button"
+                              onClick={() => setActiveDayTab(prev => ({ ...prev, [rg.roomId]: b.id }))}
+                              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors border ${
+                                isActive
+                                  ? "bg-[#184689] text-white border-[#184689]"
+                                  : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                              }`}
+                            >
+                              <span>{dateLabel}</span>
+                              <span className={`text-[10px] ${isActive ? "text-blue-200" : "text-slate-400"}`}>
+                                {b.startTime}-{b.endTime}
+                              </span>
+                              {showErrors && hasIncomplete && (
+                                <span className={`w-2 h-2 rounded-full ${isActive ? "bg-red-300" : "bg-red-500"}`} />
+                              )}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
 
-                  {/* Campos editáveis */}
-                  <div className="md:col-span-6">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.nomeEvento} onChange={(e) => handleEventChange(g.canonicalId, "nomeEvento", e.target.value)} placeholder="Ex: Workshop de Tecnologia" className={evInputClass("nomeEvento")} />
-                    {hasEventError(g.canonicalId, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-                  </div>
-                  <div className="md:col-span-6">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade do evento <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.finalidadeEvento} onChange={(e) => handleEventChange(g.canonicalId, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento, Reunião, Palestra..." className={evInputClass("finalidadeEvento")} />
-                    {hasEventError(g.canonicalId, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-                  </div>
-                  <div className="md:col-span-3">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes</label>
-                    <input type="text" inputMode="numeric" value={ed.participantes} onChange={(e) => handleEventChange(g.canonicalId, "participantes", e.target.value)} placeholder="Ex: 50" className={evInputClass("participantes")} />
-                  </div>
-                  <div className="md:col-span-4">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Responsavel no dia <span className="text-red-500">*</span></label>
-                    <input type="text" value={ed.responsavelLocal} onChange={(e) => handleEventChange(g.canonicalId, "responsavelLocal", e.target.value)} placeholder="Nome de quem estará presente" className={evInputClass("responsavelLocal")} />
-                    {hasEventError(g.canonicalId, "responsavelLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-                  </div>
-                  <div className="md:col-span-5">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Contato do responsavel <span className="text-red-500">*</span></label>
-                    <input type="tel" inputMode="numeric" value={ed.contatoLocal} onChange={(e) => handleEventChange(g.canonicalId, "contatoLocal", e.target.value)} placeholder="(00) 00000-0000" maxLength={15} className={evInputClass("contatoLocal")} />
-                    {hasEventError(g.canonicalId, "contatoLocal") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
-                  </div>
-                  <div className="md:col-span-12">
-                    <label className="block text-sm font-semibold text-[#384050] mb-1.5">Informacoes adicionais</label>
-                    <textarea value={ed.observacoes} onChange={(e) => handleEventChange(g.canonicalId, "observacoes", e.target.value)} rows={2} placeholder="Necessidades especiais, equipamentos extras..." className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm resize-none" />
-                  </div>
-                </div>
-              )
-            })}
+                    {/* Campos de evento por dia */}
+                    {rg.dayBookings.map((b) => {
+                      if (rg.dayBookings.length > 1 && activeDayTab[rg.roomId] !== b.id) return null
+                      const ev = slotEventMap[b.id] || emptySlotEvent
+                      const dateLabel = b.selectedRange.from?.toLocaleDateString("pt-BR") || ""
+                      const slotInputClass = (name: keyof SlotEventData) => {
+                        const err = hasSlotEventError(b.id, name)
+                        const border = err ? "border-red-400 ring-1 ring-red-200" : "border-gray-300"
+                        return `w-full rounded-md border ${border} px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-colors bg-white shadow-sm`
+                      }
 
-            {/* Pagamento — global, fora das abas */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mt-4 pt-4 border-t border-slate-100">
+                      return (
+                        <div key={b.id} className="grid grid-cols-1 md:grid-cols-12 gap-4 bg-white rounded-lg p-4 border border-slate-100">
+                          {/* Info readonly do dia */}
+                          {rg.dayBookings.length === 1 && (
+                            <>
+                              <div className="md:col-span-4">
+                                <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Data</label>
+                                <input type="text" value={dateLabel} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                              </div>
+                              <div className="md:col-span-4">
+                                <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Inicio</label>
+                                <input type="text" value={b.startTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                              </div>
+                              <div className="md:col-span-4">
+                                <label className="block text-xs font-medium text-slate-400 uppercase mb-1.5">Termino</label>
+                                <input type="text" value={b.endTime} readOnly className="w-full rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-500 cursor-not-allowed shadow-sm" />
+                              </div>
+                            </>
+                          )}
+
+                          {/* Campos editáveis do evento */}
+                          <div className="md:col-span-5">
+                            <label className="block text-sm font-semibold text-[#384050] mb-1.5">Nome do evento <span className="text-red-500">*</span></label>
+                            <input type="text" value={ev.nomeEvento} onChange={(e) => handleSlotEventChange(b.id, "nomeEvento", e.target.value)} placeholder="Ex: Palestra de Abertura" className={slotInputClass("nomeEvento")} />
+                            {hasSlotEventError(b.id, "nomeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                          </div>
+                          <div className="md:col-span-4">
+                            <label className="block text-sm font-semibold text-[#384050] mb-1.5">Finalidade <span className="text-red-500">*</span></label>
+                            <input type="text" value={ev.finalidadeEvento} onChange={(e) => handleSlotEventChange(b.id, "finalidadeEvento", e.target.value)} placeholder="Ex: Treinamento" className={slotInputClass("finalidadeEvento")} />
+                            {hasSlotEventError(b.id, "finalidadeEvento") && <span className="text-xs text-red-500 mt-1">Campo obrigatório</span>}
+                          </div>
+                          <div className="md:col-span-3">
+                            <label className="block text-sm font-semibold text-[#384050] mb-1.5">Participantes</label>
+                            <input type="text" inputMode="numeric" value={ev.participantes} onChange={(e) => handleSlotEventChange(b.id, "participantes", e.target.value)} placeholder="Ex: 50" className={slotInputClass("participantes")} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* Pagamento — global, fora das salas */}
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mt-6 pt-4 border-t border-slate-100">
               <div className="md:col-span-6">
                 <label className="block text-sm font-semibold text-[#384050] mb-1.5">Opcao de pagamento <span className="text-red-500">*</span></label>
                 <select name="opcaoPagamento" value={formData.opcaoPagamento} onChange={handleChange} className={inputClass("opcaoPagamento")}>

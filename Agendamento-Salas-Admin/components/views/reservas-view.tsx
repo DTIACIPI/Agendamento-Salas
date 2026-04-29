@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Filter, ChevronLeft, ChevronRight, Search, Plus } from "lucide-react"
+import { ChevronLeft, ChevronRight, Search, Plus } from "lucide-react"
 import { StatusBadge } from "@/components/shared/status-badge"
 import type { BookingListItem, BookingStatus } from "@/lib/types"
 import { formatCurrency } from "@/lib/utils"
@@ -9,13 +9,13 @@ import { formatCurrency } from "@/lib/utils"
 interface ReservasViewProps {
   bookings: BookingListItem[]
   isLoading: boolean
-  total: number
-  page: number
-  perPage: number
-  onPageChange: (page: number) => void
   onOpenDossier: (bookingId: string) => void
   onNewBooking: () => void
+  hasMore: boolean
+  onLoadMore: () => void
 }
+
+const PER_PAGE_OPTIONS = [10, 20, 30] as const
 
 const INTERNAL_TYPES = ["Cessão", "Uso Interno", "Curso"]
 
@@ -25,10 +25,9 @@ const STATUS_OPTIONS: { label: string; value: BookingStatus | "all" }[] = [
   { label: "Todos", value: "all" },
   { label: "Pre-reserva", value: "Pre-reserva" },
   { label: "Confirmada", value: "Confirmada" },
-  { label: "Concluída", value: "Concluída" },
   { label: "Cancelada", value: "Cancelada" },
+  { label: "Concluída", value: "Concluída" },
   { label: "Perdida", value: "Perdida" },
-  { label: "Pendente", value: "Pendente" },
 ]
 
 function formatEventDate(raw: string | null): string {
@@ -49,17 +48,17 @@ function formatAmount(value: number | string): string {
 export function ReservasView({
   bookings,
   isLoading,
-  total,
-  page,
-  perPage,
-  onPageChange,
   onOpenDossier,
   onNewBooking,
+  hasMore,
+  onLoadMore,
 }: ReservasViewProps) {
   const [activeTab, setActiveTab] = useState<TabId>("external")
+  const [externalPage, setExternalPage] = useState(1)
+  const [internalPage, setInternalPage] = useState(1)
+  const [perPage, setPerPage] = useState<number>(10)
   const [statusFilter, setStatusFilter] = useState<BookingStatus | "all">("all")
   const [searchQuery, setSearchQuery] = useState("")
-  const [showFilters, setShowFilters] = useState(false)
 
   const isInternal = activeTab === "internal"
 
@@ -77,7 +76,13 @@ export function ReservasView({
     return true
   })
 
-  const totalPages = Math.max(1, Math.ceil(total / perPage))
+  const page = activeTab === "external" ? externalPage : internalPage
+  const setPage = activeTab === "external" ? setExternalPage : setInternalPage
+  const totalFiltered = filtered.length
+  const totalPages = Math.max(1, Math.ceil(totalFiltered / perPage))
+  const paged = filtered.slice((page - 1) * perPage, page * perPage)
+  const isLastPage = page >= totalPages
+  const showLoadMore = isLastPage && hasMore
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "external", label: "Locacoes" },
@@ -91,22 +96,12 @@ export function ReservasView({
           <h1 className="text-2xl font-bold text-slate-800">Gestao de Reservas</h1>
           <p className="text-slate-500 text-sm mt-1">
             Aprove, edite ou rejeite solicitacoes de reserva.
-            {total > 0 && (
-              <span className="ml-2 text-slate-400">({total} reservas)</span>
+            {filtered.length > 0 && (
+              <span className="ml-2 text-slate-400">({filtered.length} reservas)</span>
             )}
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 border px-3 py-2 rounded-lg text-sm transition-colors ${
-              showFilters || statusFilter !== "all" || searchQuery
-                ? "bg-[#184689] text-white border-[#184689]"
-                : "bg-white border-slate-200 hover:bg-slate-50"
-            }`}
-          >
-            <Filter className="w-4 h-4" /> Filtros
-          </button>
           <button
             onClick={onNewBooking}
             className="flex items-center gap-2 bg-[#184689] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#12356b] transition-colors shadow-sm"
@@ -133,9 +128,8 @@ export function ReservasView({
         ))}
       </div>
 
-      {/* Painel de filtros */}
-      {showFilters && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+      {/* Filtros */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4 flex flex-col sm:flex-row gap-4">
           <div className="flex-1">
             <label className="block text-xs font-medium text-slate-500 uppercase mb-1.5">Buscar</label>
             <div className="relative">
@@ -167,8 +161,7 @@ export function ReservasView({
               ))}
             </div>
           </div>
-        </div>
-      )}
+      </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <table className="w-full text-left text-sm border-collapse">
@@ -206,14 +199,14 @@ export function ReservasView({
                   {!isInternal && <td className="px-6 py-4 text-right"><div className="h-7 w-24 bg-slate-100 rounded animate-pulse ml-auto" /></td>}
                 </tr>
               ))
-            ) : filtered.length === 0 ? (
+            ) : paged.length === 0 ? (
               <tr>
                 <td colSpan={isInternal ? 5 : 6} className="px-6 py-12 text-center text-slate-500">
                   Nenhuma reserva encontrada.
                 </td>
               </tr>
             ) : (
-              filtered.map((b) => (
+              paged.map((b) => (
                 <tr key={b.id} className="hover:bg-slate-50">
                   {isInternal ? (
                     <>
@@ -268,15 +261,33 @@ export function ReservasView({
         </table>
 
         {/* Paginacao */}
-        {!isLoading && totalPages > 1 && (
+        {!isLoading && filtered.length > 0 && (
           <div className="flex items-center justify-between px-6 py-3 border-t border-slate-200 bg-slate-50">
-            <p className="text-sm text-slate-500">
-              Pagina {page} de {totalPages}
-            </p>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-slate-500">
+                Pagina {page} de {totalPages}
+              </p>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">Exibir</span>
+                {PER_PAGE_OPTIONS.map((opt) => (
+                  <button
+                    key={opt}
+                    onClick={() => { setPerPage(opt); setExternalPage(1); setInternalPage(1) }}
+                    className={`w-8 h-7 text-xs rounded border transition-colors ${
+                      perPage === opt
+                        ? "bg-[#184689] text-white border-[#184689]"
+                        : "bg-white text-slate-500 border-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {totalPages > 1 && <div className="flex items-center gap-1">
               <button
                 disabled={page <= 1}
-                onClick={() => onPageChange(page - 1)}
+                onClick={() => setPage(page - 1)}
                 className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronLeft className="w-4 h-4" />
@@ -294,7 +305,7 @@ export function ReservasView({
                   ) : (
                     <button
                       key={item}
-                      onClick={() => onPageChange(item)}
+                      onClick={() => setPage(item)}
                       className={`w-8 h-8 text-sm rounded-lg border transition-colors ${
                         item === page
                           ? "bg-[#184689] text-white border-[#184689]"
@@ -307,12 +318,23 @@ export function ReservasView({
                 )}
               <button
                 disabled={page >= totalPages}
-                onClick={() => onPageChange(page + 1)}
+                onClick={() => setPage(page + 1)}
                 className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
-            </div>
+            </div>}
+          </div>
+        )}
+
+        {showLoadMore && (
+          <div className="flex justify-center px-6 py-3 border-t border-slate-200 bg-slate-50">
+            <button
+              onClick={onLoadMore}
+              className="text-sm text-[#184689] font-medium hover:underline"
+            >
+              Carregar mais resultados...
+            </button>
           </div>
         )}
       </div>

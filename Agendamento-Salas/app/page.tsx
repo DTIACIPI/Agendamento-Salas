@@ -320,8 +320,6 @@ export default function Home() {
   }, [selectedRoom])
 
   const handleConfirm = useCallback(() => {
-    if (!selectedRoom) return
-
     const currentBookings = bookingsRef.current
     const currentCartRooms = cartRoomsRef.current
 

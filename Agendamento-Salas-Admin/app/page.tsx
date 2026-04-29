@@ -48,7 +48,6 @@ export default function Page() {
 
 const VALID_TABS: TabId[] = ["dashboard", "reservas", "agenda", "salas", "cupons", "contratos", "empresas", "usuarios", "config"]
 const SUPER_ADMIN_TABS: TabId[] = ["usuarios"]
-const BOOKINGS_PER_PAGE = 10
 const COMPANIES_PER_PAGE = 10
 
 function AdminDashboard() {
@@ -79,28 +78,31 @@ function AdminDashboard() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
-  // Data states (API)
-  const [coupons, setCoupons] = useState<Coupon[]>([])
-  const [isCouponsLoading, setIsCouponsLoading] = useState(true)
-
-  // Data states (API)
+  // Data states (API) — carregam no mount (usados globalmente)
   const [rooms, setRooms] = useState<Room[]>([])
   const [isRoomsLoading, setIsRoomsLoading] = useState(true)
+
+  // Data states (API) — lazy load por aba
+  const [coupons, setCoupons] = useState<Coupon[]>([])
+  const [isCouponsLoading, setIsCouponsLoading] = useState(true)
+  const [couponsLoaded, setCouponsLoaded] = useState(false)
+
   const [bookings, setBookings] = useState<BookingListItem[]>([])
   const [isBookingsLoading, setIsBookingsLoading] = useState(true)
-  const [bookingsTotal, setBookingsTotal] = useState(0)
-  const [bookingsPage, setBookingsPage] = useState(1)
+  const [bookingsLoaded, setBookingsLoaded] = useState(false)
+  const [bookingsApiTotalPages, setBookingsApiTotalPages] = useState(1)
+  const [bookingsApiCurrentPage, setBookingsApiCurrentPage] = useState(1)
 
-  // Data states: companies (API)
   const [companies, setCompanies] = useState<Company[]>([])
   const [isCompaniesLoading, setIsCompaniesLoading] = useState(true)
+  const [companiesLoaded, setCompaniesLoaded] = useState(false)
   const [companiesPage, setCompaniesPage] = useState(1)
   const [companiesTotalPages, setCompaniesTotalPages] = useState(1)
   const [companiesTotalRecords, setCompaniesTotalRecords] = useState(0)
 
-  // Data states: users (API)
   const [users, setUsers] = useState<User[]>([])
   const [isUsersLoading, setIsUsersLoading] = useState(true)
+  const [usersLoaded, setUsersLoaded] = useState(false)
 
   // Modal states
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null)
@@ -202,46 +204,56 @@ function AdminDashboard() {
       console.error("Erro ao carregar cupons:", error)
     } finally {
       setIsCouponsLoading(false)
+      setCouponsLoaded(true)
     }
   }, [])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchCoupons(controller.signal)
-    return () => controller.abort()
-  }, [fetchCoupons])
 
-  // Fetch: bookings (paginado)
-  const fetchBookings = useCallback(async (page?: number, signal?: AbortSignal) => {
-    const p = page ?? bookingsPage
-    const offset = (p - 1) * BOOKINGS_PER_PAGE
-    setIsBookingsLoading(true)
+  const BOOKINGS_API_LIMIT = 100
+
+  const fetchBookingsPage = useCallback(async (apiPage: number, append: boolean, signal?: AbortSignal) => {
+    if (!append) setIsBookingsLoading(true)
     try {
+      const offset = (apiPage - 1) * BOOKINGS_API_LIMIT
       const res = await authFetch(
-        `${API_BASE_URL}/webhook/api/bookings?limit=${BOOKINGS_PER_PAGE}&offset=${offset}`,
+        `${API_BASE_URL}/webhook/api/bookings?limit=${BOOKINGS_API_LIMIT}&offset=${offset}`,
         { cache: "no-store", signal },
       )
       if (!res.ok) throw new Error("Falha ao buscar reservas")
       const text = await res.text()
-      if (!text) { setBookings([]); setBookingsTotal(0); return }
-      const data = JSON.parse(text)
-      if (Array.isArray(data?.data)) {
-        setBookings(data.data as BookingListItem[])
-        setBookingsTotal(typeof data.total === "number" ? data.total : 0)
+      if (!text) { if (!append) setBookings([]); return }
+      const raw = JSON.parse(text)
+      const data = Array.isArray(raw) ? raw[0] : raw
+      const list = Array.isArray(data?.data) ? data.data : []
+      const pag = data?.pagination
+      const totalPages = typeof pag?.total_pages === "number" ? pag.total_pages : 1
+      setBookingsApiTotalPages(totalPages)
+      setBookingsApiCurrentPage(apiPage)
+      if (append) {
+        setBookings((prev) => [...prev, ...(list as BookingListItem[])])
+      } else {
+        setBookings(list as BookingListItem[])
       }
     } catch (error) {
       if ((error as Error).name === "AbortError") return
       console.error("Erro ao carregar reservas:", error)
     } finally {
       setIsBookingsLoading(false)
+      setBookingsLoaded(true)
     }
-  }, [bookingsPage])
+  }, [])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchBookings(bookingsPage, controller.signal)
-    return () => controller.abort()
-  }, [bookingsPage, fetchBookings])
+  const fetchBookings = useCallback(async (signal?: AbortSignal) => {
+    setBookingsApiCurrentPage(1)
+    await fetchBookingsPage(1, false, signal)
+  }, [fetchBookingsPage])
+
+  const loadMoreBookings = useCallback(async () => {
+    if (bookingsApiCurrentPage < bookingsApiTotalPages) {
+      await fetchBookingsPage(bookingsApiCurrentPage + 1, true)
+    }
+  }, [bookingsApiCurrentPage, bookingsApiTotalPages, fetchBookingsPage])
+
 
   // Fetch: companies (paginado)
   const fetchCompanies = useCallback(async (page?: number, signal?: AbortSignal) => {
@@ -253,27 +265,31 @@ function AdminDashboard() {
         { cache: "no-store", signal },
       )
       if (!res.ok) throw new Error("Falha ao buscar empresas")
-      const data = await res.json()
-      if (Array.isArray(data?.data)) {
-        setCompanies(data.data as Company[])
-      }
-      if (data?.pagination) {
-        setCompaniesTotalPages(data.pagination.total_pages ?? 1)
-        setCompaniesTotalRecords(data.pagination.total_records ?? 0)
-      }
+      const raw = await res.json()
+      // Normaliza: resposta pode vir como array-wrapped [{ data, ... }] ou objeto direto
+      const data = Array.isArray(raw) ? raw[0] : raw
+      const list = Array.isArray(data?.data) ? data.data : []
+      setCompanies(list as Company[])
+      // Extrai paginação de múltiplos formatos
+      const pag = data?.pagination ?? data
+      const totalRecords = typeof pag?.total_records === "number" ? pag.total_records
+        : typeof data?.total === "number" ? data.total
+        : typeof data?.count === "number" ? data.count
+        : 0
+      const totalPages = typeof pag?.total_pages === "number" ? pag.total_pages
+        : totalRecords > 0 ? Math.ceil(totalRecords / COMPANIES_PER_PAGE)
+        : 1
+      setCompaniesTotalPages(totalPages)
+      setCompaniesTotalRecords(totalRecords)
     } catch (error) {
       if ((error as Error).name === "AbortError") return
       console.error("Erro ao carregar empresas:", error)
     } finally {
       setIsCompaniesLoading(false)
+      setCompaniesLoaded(true)
     }
   }, [companiesPage])
 
-  useEffect(() => {
-    const controller = new AbortController()
-    fetchCompanies(companiesPage, controller.signal)
-    return () => controller.abort()
-  }, [companiesPage, fetchCompanies])
 
   // Fetch: users (somente Super Admin) — GET /webhook/api/users
   const fetchUsers = useCallback(async (signal?: AbortSignal) => {
@@ -307,24 +323,33 @@ function AdminDashboard() {
       console.error("Erro ao carregar utilizadores:", error)
     } finally {
       setIsUsersLoading(false)
+      setUsersLoaded(true)
     }
   }, [])
 
-  // So busca usuarios se for Super Admin (evita chamada 401 desnecessaria)
+  // Lazy load: busca dados apenas quando a aba é acessada pela primeira vez
   useEffect(() => {
-    if (!isSuperAdmin) return
+    if (!activeTab) return
     const controller = new AbortController()
-    fetchUsers(controller.signal)
+
+    if (activeTab === "reservas" && !bookingsLoaded) {
+      fetchBookings(controller.signal)
+    } else if (activeTab === "cupons" && !couponsLoaded) {
+      fetchCoupons(controller.signal)
+    } else if (activeTab === "empresas" && !companiesLoaded) {
+      fetchCompanies(companiesPage, controller.signal)
+    } else if (activeTab === "usuarios" && isSuperAdmin && !usersLoaded) {
+      fetchUsers(controller.signal)
+    }
+
     return () => controller.abort()
-  }, [isSuperAdmin, fetchUsers])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
+
 
   // Handlers
   const handleBookingStatusChanged = async () => {
-    await fetchBookings(bookingsPage)
-  }
-
-  const handleBookingsPageChange = (page: number) => {
-    setBookingsPage(page)
+    await fetchBookings()
   }
 
   const openCouponModal = (coupon: Coupon | null) => {
@@ -354,20 +379,24 @@ function AdminDashboard() {
     fetchSpaces()
   }
 
-  const handleDeleteRoom = async (roomId: string) => {
+  const handleToggleRoomStatus = async (roomId: string, activate: boolean) => {
     try {
-      const res = await authFetch(`${API_BASE_URL}/webhook/b843ead7-f97c-4674-ab95-82c9ee731171/api/spaces/${roomId}`, {
-        method: "DELETE",
+      const res = await authFetch(`${API_BASE_URL}/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ is_active: activate ? 1 : 0 }),
       })
-      if (!res.ok) throw new Error("Falha ao excluir sala")
+      if (!res.ok) throw new Error(activate ? "Falha ao ativar sala" : "Falha ao desativar sala")
       fetchSpaces()
     } catch (error) {
-      console.error("Erro ao excluir sala:", error)
+      console.error("Erro ao alterar status da sala:", error)
+      throw error
     }
   }
 
   const handleCompaniesPageChange = (page: number) => {
     setCompaniesPage(page)
+    fetchCompanies(page)
   }
 
   const handleCompanyUpdated = () => {
@@ -433,12 +462,10 @@ function AdminDashboard() {
               <ReservasView
                 bookings={bookings}
                 isLoading={isBookingsLoading}
-                total={bookingsTotal}
-                page={bookingsPage}
-                perPage={BOOKINGS_PER_PAGE}
-                onPageChange={handleBookingsPageChange}
                 onOpenDossier={setSelectedBookingId}
                 onNewBooking={() => setIsNewBookingModalOpen(true)}
+                hasMore={bookingsApiCurrentPage < bookingsApiTotalPages}
+                onLoadMore={loadMoreBookings}
               />
             )}
             {activeTab === "agenda" && (
@@ -455,7 +482,7 @@ function AdminDashboard() {
                 isLoading={isRoomsLoading}
                 isSuperAdmin={isSuperAdmin}
                 onOpenRoomModal={openRoomModal}
-                onDeleteRoom={isSuperAdmin ? handleDeleteRoom : undefined}
+                onToggleRoomStatus={isSuperAdmin ? handleToggleRoomStatus : undefined}
               />
             )}
             {activeTab === "cupons" && (
@@ -550,7 +577,7 @@ function AdminDashboard() {
           onClose={() => setIsNewBookingModalOpen(false)}
           onSaved={() => {
             setIsNewBookingModalOpen(false)
-            fetchBookings(bookingsPage)
+            fetchBookings()
           }}
         />
       </main>

@@ -63,6 +63,9 @@ export interface BookingSlot {
   start_time: string
   end_time: string
   event_end_time?: string
+  slot_event_name?: string
+  slot_event_purpose?: string
+  slot_attendees?: number | null
 }
 
 // Dossiê completo /api/bookings/:id — resposta flat vinda da API
@@ -135,8 +138,8 @@ export interface Room {
   images?: string[]
   amenities?: string[]
   pricing?: RoomPricing
-  is_active?: boolean
-  available?: boolean
+  is_active?: boolean | number
+  available?: boolean | number
   status?: string
 }
 
@@ -285,22 +288,29 @@ export interface SystemSettings {
   discount_tier3_pct: number
 }
 
+export interface BookingSlotPayload {
+  date: string
+  startTime: string
+  endTime: string
+  slot_event_name: string
+  slot_event_purpose: string
+  slot_attendees: number | null
+}
+
 export interface NewBookingPayload {
-  booking: {
+  bookings: {
     space_id: string
-    booking_date: string
-    start_time: string
-    end_time: string
-    event_name: string
-    event_purpose: string
-    estimated_attendees: number | null
     booking_type: BookingType
     total_amount: number
     onsite_contact_name: string
     onsite_contact_phone: string
     payment_method: string
     cleaning_buffer: number
-  }
+    coupon_code?: string | null
+    coupon_discount?: number | null
+    requires_assembly?: string | null
+    slots: BookingSlotPayload[]
+  }[]
   company: {
     cnpj: string
     razao_social: string

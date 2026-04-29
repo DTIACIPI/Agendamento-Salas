@@ -44,6 +44,17 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
       const data = await res.json()
       const detail = Array.isArray(data) ? data[0] : data
       if (detail?.id) {
+        const slots = detail.horarios_reservados ?? []
+        const firstSlot = slots[0]
+        if (!detail.event_name && firstSlot?.slot_event_name) {
+          detail.event_name = firstSlot.slot_event_name
+        }
+        if (!detail.event_purpose && firstSlot?.slot_event_purpose) {
+          detail.event_purpose = firstSlot.slot_event_purpose
+        }
+        if (!detail.estimated_attendees && firstSlot?.slot_attendees) {
+          detail.estimated_attendees = firstSlot.slot_attendees
+        }
         setBooking(detail as BookingDetail)
       } else {
         toast.error("Resposta inesperada da API de detalhes")
@@ -179,15 +190,30 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
   const status = current?.status ?? "Pendente"
   const isInternal = INTERNAL_TYPES.includes(current?.booking_type ?? "")
 
-  const formatSlots = (slots: BookingDetail["horarios_reservados"]) => {
-    if (!slots || slots.length === 0) return "Sem horarios"
-    return slots.map((s) => {
-      const date = new Date(s.booking_date + "T00:00:00")
-      const formatted = date.toLocaleDateString("pt-BR")
-      const start = s.start_time?.substring(0, 5) ?? ""
-      const end = (s.event_end_time ?? s.end_time)?.substring(0, 5) ?? ""
-      return `${formatted} ${start}–${end}`
-    }).join(" | ")
+  const renderSlots = (slots: BookingDetail["horarios_reservados"]) => {
+    if (!slots || slots.length === 0) return <p className="text-blue-900 font-medium">Sem horarios</p>
+    return (
+      <div className="space-y-2">
+        {slots.map((s, i) => {
+          const date = new Date(s.booking_date + "T00:00:00")
+          const formatted = date.toLocaleDateString("pt-BR")
+          const start = s.start_time?.substring(0, 5) ?? ""
+          const end = (s.event_end_time ?? s.end_time)?.substring(0, 5) ?? ""
+          return (
+            <div key={i} className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-3">
+              <span className="font-semibold text-blue-900">{formatted} {start}–{end}</span>
+              {s.slot_event_name && (
+                <span className="text-blue-700 text-xs">
+                  {s.slot_event_name}
+                  {s.slot_event_purpose ? ` — ${s.slot_event_purpose}` : ""}
+                  {s.slot_attendees ? ` (${s.slot_attendees} participantes)` : ""}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   const formatAmount = (value: string | null) => {
@@ -371,7 +397,7 @@ export function BookingDossier({ bookingId, onClose, onStatusChanged, onBack, is
                   {/* Horarios — somente leitura */}
                   <div className="col-span-2 bg-blue-50 p-3 rounded border border-blue-100">
                     <span className="block text-xs font-bold text-blue-600 uppercase mb-1">Horarios Reservados</span>
-                    <p className="text-blue-900 font-medium">{formatSlots(current.horarios_reservados)}</p>
+                    {renderSlots(current.horarios_reservados)}
                   </div>
 
                   {/* Responsavel no dia */}

@@ -1,11 +1,13 @@
 "use client"
 
-import { useState } from "react"
-import { Plus, Edit, Ticket, Trash2, Loader2 } from "lucide-react"
+import { useMemo, useState } from "react"
+import { Plus, Edit, Ticket, Trash2, Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { authFetch } from "@/lib/auth/auth-fetch"
 import { API_BASE_URL } from "@/lib/utils"
 import type { Coupon } from "@/lib/types"
+
+type StatusFilter = "all" | "active" | "inactive"
 
 interface CuponsViewProps {
   coupons: Coupon[]
@@ -17,9 +19,34 @@ interface CuponsViewProps {
 }
 
 export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoupon, canToggle = false, onRefresh }: CuponsViewProps) {
+  const [search, setSearch] = useState("")
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active")
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+
+  const counts = useMemo(() => ({
+    all: coupons.length,
+    active: coupons.filter((c) => c.is_active).length,
+    inactive: coupons.filter((c) => !c.is_active).length,
+  }), [coupons])
+
+  const filtered = useMemo(() => {
+    let list = coupons
+
+    if (statusFilter === "active") list = list.filter((c) => c.is_active)
+    else if (statusFilter === "inactive") list = list.filter((c) => !c.is_active)
+
+    const q = search.trim().toLowerCase()
+    if (q) {
+      list = list.filter((c) =>
+        c.code.toLowerCase().includes(q) ||
+        c.discount_type.toLowerCase().includes(q),
+      )
+    }
+
+    return list
+  }, [coupons, search, statusFilter])
 
   const handleToggle = async (coupon: Coupon) => {
     setTogglingId(coupon.id)
@@ -69,6 +96,40 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
         )}
       </div>
 
+      {/* Filtros + Busca */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="flex bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+          {([
+            { key: "active", label: "Ativos", count: counts.active },
+            { key: "inactive", label: "Inativos", count: counts.inactive },
+            { key: "all", label: "Todos", count: counts.all },
+          ] as { key: StatusFilter; label: string; count: number }[]).map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setStatusFilter(key)}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                statusFilter === key
+                  ? "bg-[#184689] text-white"
+                  : "text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {label} <span className={`ml-1 ${statusFilter === key ? "text-white/70" : "text-slate-400"}`}>({count})</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 bg-white rounded-lg border border-slate-200 shadow-sm px-4 py-2 flex items-center gap-2">
+          <Search className="w-4 h-4 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por codigo do cupom..."
+            className="bg-transparent border-none outline-none text-sm w-full placeholder:text-slate-400"
+          />
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {isLoading ? (
           <div className="divide-y divide-slate-200">
@@ -82,9 +143,9 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
               </div>
             ))}
           </div>
-        ) : coupons.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-slate-500">
-            Nenhum cupom cadastrado.
+            {coupons.length === 0 ? "Nenhum cupom cadastrado." : "Nenhum cupom encontrado com os filtros atuais."}
           </div>
         ) : (
           <table className="w-full text-left text-sm border-collapse">
@@ -98,8 +159,8 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {coupons.map((coupon) => (
-                <tr key={coupon.id} className="hover:bg-slate-50 transition-colors">
+              {filtered.map((coupon) => (
+                <tr key={coupon.id} className={`hover:bg-slate-50 transition-colors ${!coupon.is_active ? "opacity-60" : ""}`}>
                   <td className="px-6 py-4">
                     <div className="inline-flex items-center gap-2 font-mono font-bold text-sm bg-slate-100 text-slate-800 px-2 py-1 rounded border border-slate-200">
                       <Ticket className="w-4 h-4 text-slate-400" /> {coupon.code}
@@ -111,7 +172,7 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
                       : `R$ ${Number(coupon.discount_value).toFixed(2)} fixo`}
                   </td>
                   <td className="px-6 py-4 text-slate-600">
-                    <span className="font-semibold">{coupon.current_uses}</span> / {coupon.max_uses ?? "\u221E"}
+                    <span className="font-semibold">{coupon.current_uses}</span> / {coupon.max_uses ?? "∞"}
                   </td>
                   <td className="px-6 py-4 text-slate-600">
                     {coupon.valid_until
