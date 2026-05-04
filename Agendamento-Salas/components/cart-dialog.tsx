@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, memo } from "react"
 import { useRouter } from "next/navigation"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -16,7 +16,7 @@ import { toast } from "sonner"
 import Image from "next/image"
 import { format } from "date-fns"
 import { ptBR } from "date-fns/locale"
-import { generateTimeOptions, isSlotOccupied, isRangeAvailable } from "@/components/booking-calendar"
+import { generateTimeOptions, isSlotOccupied, isRangeAvailable } from "@/lib/availability"
 
 const formatBookingDate = (date: Date | undefined) => {
   if (!date) return "—"
@@ -58,7 +58,7 @@ interface CartDialogProps {
   systemSettings?: SystemSettings
 }
 
-export function CartDialog({
+export const CartDialog = memo(function CartDialog({
   open,
   onOpenChange,
   cartRooms,
@@ -857,7 +857,7 @@ export function CartDialog({
                         </div>
 
                         {/* Desconto Associado */}
-                        {apiDescontoAssociado > 0 && (
+                        {apiDescontoAssociado > 0 ? (
                           <div className="flex justify-between items-center text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100">
                             <div className="flex items-center gap-1.5">
                               <CheckCircle2 size={14} />
@@ -867,6 +867,10 @@ export function CartDialog({
                             </div>
                             <span className="font-bold text-sm">- {formatCurrency(apiDescontoAssociado)}</span>
                           </div>
+                        ) : (
+                          <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#004b87] text-white text-xs font-semibold hover:bg-[#003a6b] transition-colors shadow-sm">
+                            Associe-se e ganhe 10% de desconto
+                          </a>
                         )}
 
                         {/* Cupom (sobre subtotal apenas) */}
@@ -925,6 +929,9 @@ export function CartDialog({
                             <span className="text-sm font-bold text-[#004b87]">{formatCurrency(Math.max(0, localSubtotalHoras * 0.9 + localTaxaMontagem - couponDiscount))}</span>
                           </div>
                           <p className="text-[10px] text-gray-400">* Desconto pode chegar até 30%</p>
+                          <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 mt-1 px-3 py-1.5 rounded-md bg-[#004b87]/10 text-[#004b87] text-xs font-semibold hover:bg-[#004b87]/20 transition-colors">
+                            Associe-se e ganhe 10% de desconto
+                          </a>
                         </div>
                         <p className="text-[11px] text-gray-400 italic">
                           O valor exato será calculado ao informar o CNPJ na próxima etapa.
@@ -1012,4 +1019,4 @@ export function CartDialog({
       </DialogContent>
     </Dialog>
   )
-}
+})

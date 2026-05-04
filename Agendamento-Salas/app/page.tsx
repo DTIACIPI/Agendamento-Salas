@@ -1,15 +1,35 @@
 "use client"
 
 import { useState, useCallback, useEffect, useRef, useMemo } from "react"
+import dynamic from "next/dynamic"
 import { Header } from "@/components/header"
 import { RoomList, type Room } from "@/components/room-list"
-import { BookingCalendar, isRangeAvailable, generateTimeOptions } from "@/components/booking-calendar"
-import { CartDialog } from "@/components/cart-dialog"
+import { isRangeAvailable, generateTimeOptions } from "@/lib/availability"
 import { Card } from "@/components/ui/card"
-import { MousePointer2, Calendar as CalendarIcon, FileCheck, Sparkles, Clock } from "lucide-react"
+import { MousePointer2, Calendar as CalendarIcon, FileCheck, Sparkles, Clock, Loader2 } from "lucide-react"
 import { calculateRoomPrice, API_BASE_URL, formatDateToISO, type SystemSettings, DEFAULT_SETTINGS } from "@/lib/utils"
 import { toast } from "sonner"
 import React from "react"
+
+const BookingCalendar = dynamic(
+  () => import("@/components/booking-calendar").then(m => ({ default: m.BookingCalendar })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center py-20">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <Loader2 className="size-8 animate-spin text-primary" />
+          <span className="text-sm">Carregando calendário...</span>
+        </div>
+      </div>
+    ),
+  }
+)
+
+const CartDialog = dynamic(
+  () => import("@/components/cart-dialog").then(m => ({ default: m.CartDialog })),
+  { ssr: false }
+)
 
 export interface BookingItem {
   id: string

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react"
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react"
 import type { OccupiedSlot } from "@/app/page"
 import { type SystemSettings, DEFAULT_SETTINGS, addBusinessDays, formatDateToISO } from "@/lib/utils"
+import { generateTimeOptions, TIME_OPTIONS, isSlotOccupied, isRangeAvailable } from "@/lib/availability"
 import { ptBR } from "date-fns/locale"
 import { addMonths } from "date-fns"
 import { Calendar } from "@/components/ui/calendar"
@@ -29,22 +30,6 @@ import { cn } from "@/lib/utils"
 import type { Room } from "@/components/room-list"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 
-// Generate 30-minute interval time options from open_time to close_time
-export function generateTimeOptions(openTime = "08:00", closeTime = "22:00"): string[] {
-  const times: string[] = []
-  const startHour = parseInt(openTime.substring(0, 2), 10)
-  const endHour = parseInt(closeTime.substring(0, 2), 10)
-  for (let h = startHour; h <= endHour; h++) {
-    times.push(`${String(h).padStart(2, "0")}:00`)
-    if (h < endHour) {
-      times.push(`${String(h).padStart(2, "0")}:30`)
-    }
-  }
-  return times
-}
-
-export const TIME_OPTIONS = generateTimeOptions()
-
 function getDraftEndOptions(start: string, timeOptions: string[] = TIME_OPTIONS) {
   const startIdx = timeOptions.indexOf(start)
   if (startIdx === -1) return []
@@ -53,67 +38,6 @@ function getDraftEndOptions(start: string, timeOptions: string[] = TIME_OPTIONS)
     options.push({ time: timeOptions[i], disabled: false })
   }
   return options
-}
-
-const timeToMinutes = (time: string): number => {
-  if (!time) return 0;
-  const hours = parseInt(time.substring(0, 2), 10);
-  const minutes = parseInt(time.substring(3, 5), 10);
-
-  if (isNaN(hours) || isNaN(minutes)) return 0;
-  return (hours * 60) + minutes;
-};
-
-export function isSlotOccupied(
-  date: Date,
-  time: string,
-  occupiedSlots: OccupiedSlot[],
-  cleaningBuffer: number = 0
-): boolean {
-  if (!date || !time) return false;
-
-  const dateKey = formatDateToISO(date);
-  const timeInMinutes = timeToMinutes(time);
-
-  for (const slot of occupiedSlots) {
-    if (slot.date === dateKey) {
-      const startInMinutes = timeToMinutes(slot.startTime);
-      const endInMinutes = timeToMinutes(slot.endTime) + cleaningBuffer;
-
-      if (timeInMinutes >= startInMinutes && timeInMinutes < endInMinutes) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-export function isRangeAvailable(
-  date: Date,
-  start: string,
-  end: string,
-  occupiedSlots: OccupiedSlot[],
-  timeOptions: string[] = TIME_OPTIONS,
-  cleaningBuffer: number = 0
-): boolean {
-  const startIdx = timeOptions.indexOf(start);
-  const endIdx = timeOptions.indexOf(end);
-  if (startIdx === -1 || endIdx === -1 || startIdx >= endIdx) return false;
-
-  const dateKey = formatDateToISO(date);
-  const rangeStart = timeToMinutes(start);
-  const rangeEnd = timeToMinutes(end) + cleaningBuffer;
-
-  for (const slot of occupiedSlots) {
-    if (slot.date === dateKey) {
-      const slotStart = timeToMinutes(slot.startTime);
-      const slotEnd = timeToMinutes(slot.endTime) + cleaningBuffer;
-      if (rangeStart < slotEnd && rangeEnd > slotStart) {
-        return false;
-      }
-    }
-  }
-  return true;
 }
 
 interface BookingCalendarProps {
@@ -158,7 +82,7 @@ interface BookingCalendarProps {
   systemSettings?: SystemSettings;
 }
 
-export function BookingCalendar({
+export const BookingCalendar = memo(function BookingCalendar({
   room,
   selectedRange,
   onDaySelect,
@@ -303,8 +227,9 @@ export function BookingCalendar({
   const canConfirm = hasPendingBookings && !hasIncompleteItems && !hasConflicts && allPendingComplete
 
   const roomImages = useMemo(() => {
-    return room.images && room.images.length > 0 ? room.images : [room.image];
-  }, [room.images, room.image]);
+    if (isRoomDetailsLoading) return [];
+    return room.images && room.images.length > 0 ? room.images : room.image ? [room.image] : [];
+  }, [room.images, room.image, isRoomDetailsLoading]);
 
   const fullyBookedDatesSet = useMemo(() => {
     const set = new Set<string>();
@@ -410,38 +335,44 @@ export function BookingCalendar({
           
           {/* amenities icons DINÂMICOS */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3 mb-3 border-b text-[#384050] text-[13px]">
-
-            {/* Capacidade Fixa Sempre Visível */}
-            <div className="flex items-center gap-1.5 whitespace-nowrap">
-              <Users className="size-3.5 text-primary" />
-              <span>Capacidade: {room.capacity} pessoas</span>
-            </div>
-
-            {/* Andar */}
-            {room.floor && (
-              <div className="flex items-center gap-1.5 whitespace-nowrap">
-                <MapPin className="size-3.5 text-primary" />
-                <span>{room.floor}</span>
-              </div>
-            )}
-
-            {/* Loop das Comodidades do Banco de Dados */}
-            {room.amenities && room.amenities.length > 0 ? (
-              room.amenities.map((amenity, index) => {
-                let Icon = CheckCircle2;
-                const text = amenity.toLowerCase();
-                if (text.includes("projetor") || text.includes("tela")) Icon = Monitor;
-                else if (text.includes("internet") || text.includes("wi-fi") || text.includes("wifi")) Icon = Wifi;
-
-                return (
-                  <div key={index} className="flex items-center gap-1.5 whitespace-nowrap">
-                    <Icon className="size-3.5 text-primary" />
-                    <span>{amenity}</span>
-                  </div>
-                )
-              })
+            {isRoomDetailsLoading ? (
+              <>
+                <div className="h-4 w-36 bg-gray-200 rounded animate-pulse" />
+                <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
+                <div className="h-4 w-28 bg-gray-200 rounded animate-pulse" />
+              </>
             ) : (
-              <span className="text-xs italic opacity-60">Nenhuma comodidade extra listada</span>
+              <>
+                <div className="flex items-center gap-1.5 whitespace-nowrap">
+                  <Users className="size-3.5 text-primary" />
+                  <span>Capacidade: {room.capacity} pessoas</span>
+                </div>
+
+                {room.floor && (
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <MapPin className="size-3.5 text-primary" />
+                    <span>{room.floor}</span>
+                  </div>
+                )}
+
+                {room.amenities && room.amenities.length > 0 ? (
+                  room.amenities.map((amenity, index) => {
+                    let Icon = CheckCircle2;
+                    const text = amenity.toLowerCase();
+                    if (text.includes("projetor") || text.includes("tela")) Icon = Monitor;
+                    else if (text.includes("internet") || text.includes("wi-fi") || text.includes("wifi")) Icon = Wifi;
+
+                    return (
+                      <div key={index} className="flex items-center gap-1.5 whitespace-nowrap">
+                        <Icon className="size-3.5 text-primary" />
+                        <span>{amenity}</span>
+                      </div>
+                    )
+                  })
+                ) : (
+                  <span className="text-xs italic opacity-60">Nenhuma comodidade extra listada</span>
+                )}
+              </>
             )}
           </div>
 
@@ -483,27 +414,34 @@ export function BookingCalendar({
         <div className="w-full max-w-md mx-auto 2xl:max-w-none 2xl:mx-0 2xl:w-[280px] shrink-0 flex flex-col gap-4">
         {/* Image Carousel */}
         <div className="relative aspect-video w-full overflow-hidden rounded-lg group bg-gray-100">
-          {roomImages.map((img, idx) => (
-            <Image
-              key={idx}
-              src={img}
-              alt={`${room.name} - Foto ${idx + 1}`}
-              fill
-              className={cn(
-                "object-cover cursor-pointer transition-opacity duration-300 ease-in-out",
-                idx === carouselIndex ? "opacity-100 z-10 pointer-events-auto" : "opacity-0 z-0 pointer-events-none"
-              )}
-              sizes="320px"
-              onClick={() => setIsLightboxOpen(true)}
-              priority={idx === 0}
-            />
-          ))}
-
-          {isRoomDetailsLoading && (
-            <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/10 backdrop-blur-[2px] transition-all duration-300">
-              <Loader2 className="size-8 animate-spin text-white drop-shadow-md" />
+          {roomImages.length === 0 ? (
+            <div className="absolute inset-0 flex items-center justify-center animate-pulse bg-gray-200">
+              <Loader2 className="size-8 animate-spin text-gray-400" />
             </div>
-          )}  
+          ) : (
+            roomImages.map((img, idx) => {
+              const isVisible = idx === carouselIndex
+              const isAdjacent = Math.abs(idx - carouselIndex) === 1
+                || (carouselIndex === 0 && idx === roomImages.length - 1)
+                || (carouselIndex === roomImages.length - 1 && idx === 0)
+              if (!isVisible && !isAdjacent) return null
+              return (
+                <Image
+                  key={idx}
+                  src={img}
+                  alt={`${room.name} - Foto ${idx + 1}`}
+                  fill
+                  className={cn(
+                    "object-cover cursor-pointer transition-opacity duration-300 ease-in-out",
+                    isVisible ? "opacity-100 z-10 pointer-events-auto" : "opacity-0 z-0 pointer-events-none"
+                  )}
+                  sizes="320px"
+                  onClick={() => setIsLightboxOpen(true)}
+                  priority={idx === 0}
+                />
+              )
+            })
+          )}
 
           {roomImages.length > 1 && (
             <div className="absolute inset-0 z-20 flex items-center justify-between p-2 pointer-events-none">
@@ -895,6 +833,9 @@ export function BookingCalendar({
                               </ul>
                             </div>
                           </details>
+                          <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1 mt-1.5 px-2 py-1 rounded-md bg-[#004b87]/10 text-[#004b87] text-[10px] font-semibold hover:bg-[#004b87]/20 transition-colors">
+                            Associe-se
+                          </a>
                         </div>
                       )}
                     </div>
@@ -923,4 +864,4 @@ export function BookingCalendar({
       </div>
     </div>
   )
-}
+})

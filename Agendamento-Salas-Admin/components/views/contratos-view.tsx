@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { FileText } from "lucide-react"
 import { StatusBadge } from "@/components/shared/status-badge"
 import type { Contract } from "@/lib/types"
@@ -8,7 +9,7 @@ interface ContratosViewProps {
   contracts: Contract[]
 }
 
-export function ContratosView({ contracts }: ContratosViewProps) {
+export const ContratosView = memo(function ContratosView({ contracts }: ContratosViewProps) {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex justify-between items-center mb-6">
@@ -53,4 +54,4 @@ export function ContratosView({ contracts }: ContratosViewProps) {
       </div>
     </div>
   )
-}
+})

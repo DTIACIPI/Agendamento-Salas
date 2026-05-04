@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { AuthProvider, useAuth } from "@/lib/auth/auth-context"
 import { AuthGuard } from "@/components/auth/auth-guard"
 import { authFetch } from "@/lib/auth/auth-fetch"
@@ -15,12 +15,14 @@ import { ContratosView } from "@/components/views/contratos-view"
 import { EmpresasView } from "@/components/views/empresas-view"
 import { UsersView } from "@/components/views/users-view"
 import { ConfigView } from "@/components/views/config-view"
-import { BookingDossier } from "@/components/modals/booking-dossier"
-import { CompanyDossier } from "@/components/modals/company-dossier"
-import { CouponModal } from "@/components/modals/coupon-modal"
-import { RoomModal } from "@/components/modals/room-modal"
-import { UserModal } from "@/components/modals/user-modal"
-import { NewBookingModal } from "@/components/modals/new-booking-modal"
+import dynamic from "next/dynamic"
+
+const BookingDossier = dynamic(() => import("@/components/modals/booking-dossier").then(m => ({ default: m.BookingDossier })), { ssr: false })
+const CompanyDossier = dynamic(() => import("@/components/modals/company-dossier").then(m => ({ default: m.CompanyDossier })), { ssr: false })
+const CouponModal = dynamic(() => import("@/components/modals/coupon-modal").then(m => ({ default: m.CouponModal })), { ssr: false })
+const RoomModal = dynamic(() => import("@/components/modals/room-modal").then(m => ({ default: m.RoomModal })), { ssr: false })
+const UserModal = dynamic(() => import("@/components/modals/user-modal").then(m => ({ default: m.UserModal })), { ssr: false })
+const NewBookingModal = dynamic(() => import("@/components/modals/new-booking-modal").then(m => ({ default: m.NewBookingModal })), { ssr: false })
 import { toast } from "sonner"
 import {
   initialContracts,
@@ -352,15 +354,15 @@ function AdminDashboard() {
     await fetchBookings()
   }
 
-  const openCouponModal = (coupon: Coupon | null) => {
+  const openCouponModal = useCallback((coupon: Coupon | null) => {
     setEditingCoupon(coupon)
     setIsCouponModalOpen(true)
-  }
+  }, [])
 
-  const handleCouponSaved = () => {
+  const handleCouponSaved = useCallback(() => {
     setIsCouponModalOpen(false)
     fetchCoupons()
-  }
+  }, [fetchCoupons])
 
   const handleDeleteCoupon = async (couponId: string) => {
     await authFetch(`${API_BASE_URL}/webhook/859fd086-48d2-4255-a555-956f4a56e8c7/api/coupons/${couponId}`, {
@@ -369,19 +371,19 @@ function AdminDashboard() {
     await fetchCoupons()
   }
 
-  const openRoomModal = (room: Room | null) => {
+  const openRoomModal = useCallback((room: Room | null) => {
     setEditingRoom(room)
     setIsRoomModalOpen(true)
-  }
+  }, [])
 
-  const handleRoomSaved = () => {
+  const handleRoomSaved = useCallback(() => {
     setIsRoomModalOpen(false)
     fetchSpaces()
-  }
+  }, [fetchSpaces])
 
   const handleToggleRoomStatus = async (roomId: string, activate: boolean) => {
     try {
-      const res = await authFetch(`${API_BASE_URL}/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/${roomId}`, {
+      const res = await authFetch(`${API_BASE_URL}/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/inactive/${roomId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({ is_active: activate ? 1 : 0 }),
@@ -403,15 +405,15 @@ function AdminDashboard() {
     fetchCompanies(companiesPage)
   }
 
-  const openUserModal = (u: User | null) => {
+  const openUserModal = useCallback((u: User | null) => {
     setEditingUser(u)
     setIsUserModalOpen(true)
-  }
+  }, [])
 
-  const handleUserSaved = () => {
+  const handleUserSaved = useCallback(() => {
     setIsUserModalOpen(false)
     fetchUsers()
-  }
+  }, [fetchUsers])
 
   const handleToggleUserStatus = async (userId: string, activate: boolean) => {
     if (activate) {
@@ -433,7 +435,40 @@ function AdminDashboard() {
     await fetchUsers()
   }
 
-  // Aguardar leitura do hash antes de renderizar (evita flash no F5)
+  const handleCloseBookingDossier = useCallback(() => {
+    setSelectedBookingId(null)
+    setBookingReturnCompanyId(null)
+  }, [])
+
+  const handleBookingDossierBack = useMemo(() => {
+    if (!bookingReturnCompanyId) return undefined
+    return () => {
+      setSelectedBookingId(null)
+      setSelectedCompanyId(bookingReturnCompanyId)
+      setBookingReturnCompanyId(null)
+    }
+  }, [bookingReturnCompanyId])
+
+  const handleCloseCompanyDossier = useCallback(() => setSelectedCompanyId(null), [])
+
+  const handleCompanyOpenBooking = useCallback((bookingId: string) => {
+    setBookingReturnCompanyId(selectedCompanyId)
+    setSelectedCompanyId(null)
+    setSelectedBookingId(bookingId)
+  }, [selectedCompanyId])
+
+  const handleCloseCouponModal = useCallback(() => setIsCouponModalOpen(false), [])
+  const handleCloseRoomModal = useCallback(() => setIsRoomModalOpen(false), [])
+  const handleCloseUserModal = useCallback(() => setIsUserModalOpen(false), [])
+  const handleOpenNewBooking = useCallback(() => setIsNewBookingModalOpen(true), [])
+  const handleCloseNewBooking = useCallback(() => setIsNewBookingModalOpen(false), [])
+  const handleNewBookingSaved = useCallback(() => {
+    setIsNewBookingModalOpen(false)
+    fetchBookings()
+  }, [fetchBookings])
+  const handleCloseMobileMenu = useCallback(() => setIsMobileMenuOpen(false), [])
+  const handleOpenMobileMenu = useCallback(() => setIsMobileMenuOpen(true), [])
+
   if (activeTab === null) return null
 
   return (
@@ -442,7 +477,7 @@ function AdminDashboard() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         isMobileOpen={isMobileMenuOpen}
-        onMobileClose={() => setIsMobileMenuOpen(false)}
+        onMobileClose={handleCloseMobileMenu}
         isSuperAdmin={isSuperAdmin}
       />
 
@@ -450,7 +485,7 @@ function AdminDashboard() {
         <Topbar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
-          onMenuClick={() => setIsMobileMenuOpen(true)}
+          onMenuClick={handleOpenMobileMenu}
           userName={user?.name}
           userRole={user?.role}
         />
@@ -463,7 +498,7 @@ function AdminDashboard() {
                 bookings={bookings}
                 isLoading={isBookingsLoading}
                 onOpenDossier={setSelectedBookingId}
-                onNewBooking={() => setIsNewBookingModalOpen(true)}
+                onNewBooking={handleOpenNewBooking}
                 hasMore={bookingsApiCurrentPage < bookingsApiTotalPages}
                 onLoadMore={loadMoreBookings}
               />
@@ -527,59 +562,57 @@ function AdminDashboard() {
         </div>
 
         {/* Modais & Sheets */}
-        <BookingDossier
-          bookingId={selectedBookingId}
-          onClose={() => {
-            setSelectedBookingId(null)
-            setBookingReturnCompanyId(null)
-          }}
-          onStatusChanged={handleBookingStatusChanged}
-          isSuperAdmin={isSuperAdmin}
-          onBack={bookingReturnCompanyId ? () => {
-            setSelectedBookingId(null)
-            setSelectedCompanyId(bookingReturnCompanyId)
-            setBookingReturnCompanyId(null)
-          } : undefined}
-        />
-        <CompanyDossier
-          companyId={selectedCompanyId}
-          companies={companies}
-          onClose={() => setSelectedCompanyId(null)}
-          onCompanyUpdated={handleCompanyUpdated}
-          onOpenBooking={(bookingId) => {
-            setBookingReturnCompanyId(selectedCompanyId)
-            setSelectedCompanyId(null)
-            setSelectedBookingId(bookingId)
-          }}
-        />
-        <CouponModal
-          open={isCouponModalOpen}
-          editingCoupon={editingCoupon}
-          onClose={() => setIsCouponModalOpen(false)}
-          onSaved={handleCouponSaved}
-        />
-        <RoomModal
-          open={isRoomModalOpen}
-          editingRoom={editingRoom}
-          onClose={() => setIsRoomModalOpen(false)}
-          onSaved={handleRoomSaved}
-          isSuperAdmin={isSuperAdmin}
-        />
-        <UserModal
-          open={isUserModalOpen}
-          editingUser={editingUser}
-          onClose={() => setIsUserModalOpen(false)}
-          onSaved={handleUserSaved}
-        />
-        <NewBookingModal
-          open={isNewBookingModalOpen}
-          rooms={rooms}
-          onClose={() => setIsNewBookingModalOpen(false)}
-          onSaved={() => {
-            setIsNewBookingModalOpen(false)
-            fetchBookings()
-          }}
-        />
+        {selectedBookingId && (
+          <BookingDossier
+            bookingId={selectedBookingId}
+            onClose={handleCloseBookingDossier}
+            onStatusChanged={handleBookingStatusChanged}
+            isSuperAdmin={isSuperAdmin}
+            onBack={handleBookingDossierBack}
+          />
+        )}
+        {selectedCompanyId && (
+          <CompanyDossier
+            companyId={selectedCompanyId}
+            companies={companies}
+            onClose={handleCloseCompanyDossier}
+            onCompanyUpdated={handleCompanyUpdated}
+            onOpenBooking={handleCompanyOpenBooking}
+          />
+        )}
+        {isCouponModalOpen && (
+          <CouponModal
+            open={isCouponModalOpen}
+            editingCoupon={editingCoupon}
+            onClose={handleCloseCouponModal}
+            onSaved={handleCouponSaved}
+          />
+        )}
+        {isRoomModalOpen && (
+          <RoomModal
+            open={isRoomModalOpen}
+            editingRoom={editingRoom}
+            onClose={handleCloseRoomModal}
+            onSaved={handleRoomSaved}
+            isSuperAdmin={isSuperAdmin}
+          />
+        )}
+        {isUserModalOpen && (
+          <UserModal
+            open={isUserModalOpen}
+            editingUser={editingUser}
+            onClose={handleCloseUserModal}
+            onSaved={handleUserSaved}
+          />
+        )}
+        {isNewBookingModalOpen && (
+          <NewBookingModal
+            open={isNewBookingModalOpen}
+            rooms={rooms}
+            onClose={handleCloseNewBooking}
+            onSaved={handleNewBookingSaved}
+          />
+        )}
       </main>
     </div>
   )

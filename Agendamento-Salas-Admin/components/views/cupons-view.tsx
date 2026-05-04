@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, memo } from "react"
 import { Plus, Edit, Ticket, Trash2, Loader2, Search } from "lucide-react"
 import { toast } from "sonner"
 import { authFetch } from "@/lib/auth/auth-fetch"
@@ -18,7 +18,7 @@ interface CuponsViewProps {
   onRefresh: () => void
 }
 
-export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoupon, canToggle = false, onRefresh }: CuponsViewProps) {
+export const CuponsView = memo(function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoupon, canToggle = false, onRefresh }: CuponsViewProps) {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active")
   const [togglingId, setTogglingId] = useState<string | null>(null)
@@ -249,4 +249,4 @@ export function CuponsView({ coupons, isLoading, onOpenCouponModal, onDeleteCoup
       </div>
     </div>
   )
-}
+})

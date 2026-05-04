@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useState, useEffect, useCallback, useMemo, memo } from "react"
 import { ChevronLeft, ChevronRight, Loader2, Search } from "lucide-react"
 import { API_BASE_URL } from "@/lib/utils"
 import { authFetch } from "@/lib/auth/auth-fetch"
@@ -47,7 +47,6 @@ const WEEKDAY_SHORT = ["S", "T", "Q", "Q", "S", "S", "D"]
 const WEEKDAY_LABELS = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sab", "Dom"]
 const MONTH_NAMES = ["Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
 
-// Paleta de cores vibrantes estilo Bryntum — borda esquerda + fundo suave
 const ROOM_PALETTE = [
   { accent: "#3b82f6", bg: "rgba(59,130,246,0.12)", text: "#1e40af", dot: "#3b82f6" },
   { accent: "#f59e0b", bg: "rgba(245,158,11,0.12)", text: "#92400e", dot: "#f59e0b" },
@@ -57,13 +56,13 @@ const ROOM_PALETTE = [
   { accent: "#06b6d4", bg: "rgba(6,182,212,0.12)", text: "#155e75", dot: "#06b6d4" },
   { accent: "#f97316", bg: "rgba(249,115,22,0.12)", text: "#9a3412", dot: "#f97316" },
   { accent: "#ec4899", bg: "rgba(236,72,153,0.12)", text: "#9d174d", dot: "#ec4899" },
-]
+] as const
 
-const HOUR_HEIGHT = 40 // px por hora
+const HOUR_HEIGHT = 40
 
 /* ─── Componente principal ─── */
 
-export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBooking }: AgendaViewProps) {
+export const AgendaView = memo(function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBooking }: AgendaViewProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("week")
   const [currentDate, setCurrentDate] = useState(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d
@@ -137,14 +136,14 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
   const totalMinutes = hourSlots.length > 0 ? (hourSlots[hourSlots.length - 1] + 1 - hourSlots[0]) * 60 : 1
   const firstHour = hourSlots.length > 0 ? hourSlots[0] : 8
 
-  const navigate = (dir: -1 | 1) => {
+  const navigate = useCallback((dir: -1 | 1) => {
     setCurrentDate((prev) => {
       if (viewMode === "day") return addDays(prev, dir)
       if (viewMode === "week") return addDays(prev, dir * 7)
       const d = new Date(prev); d.setMonth(d.getMonth() + dir); return d
     })
-  }
-  const goToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); setCurrentDate(d) }
+  }, [viewMode])
+  const goToday = useCallback(() => { const d = new Date(); d.setHours(0, 0, 0, 0); setCurrentDate(d) }, [])
 
   const periodLabel = useMemo(() => {
     if (viewMode === "day") return currentDate.toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "long", year: "numeric" })
@@ -158,14 +157,17 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
 
   const today = new Date(); today.setHours(0, 0, 0, 0)
 
-  /* ─── Mini Calendar (sidebar) ─── */
-  function MiniCalendar() {
+  const eventDatesSet = useMemo(() => {
+    const set = new Set<string>()
+    for (const e of filteredEvents) set.add(e.date)
+    return set
+  }, [filteredEvents])
+
+  const miniCalWeeks = useMemo(() => {
     const year = currentDate.getFullYear()
     const month = currentDate.getMonth()
     const firstDay = new Date(year, month, 1)
-    const lastDay = new Date(year, month + 1, 0)
     const calStart = startOfWeek(firstDay)
-
     const weeks: Date[][] = []
     let cursor = new Date(calStart)
     for (let w = 0; w < 6; w++) {
@@ -174,43 +176,23 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
       weeks.push(week)
       if (cursor.getMonth() !== month && w >= 3) break
     }
+    return weeks
+  }, [currentDate.getFullYear(), currentDate.getMonth()])
 
-    const navigateMonth = (dir: -1 | 1) => {
-      const d = new Date(currentDate); d.setMonth(d.getMonth() + dir); setCurrentDate(d)
-    }
+  const navigateMiniMonth = useCallback((dir: -1 | 1) => {
+    setCurrentDate((prev) => { const d = new Date(prev); d.setMonth(d.getMonth() + dir); return d })
+  }, [])
 
-    return (
-      <div className="select-none">
-        <div className="flex items-center justify-between mb-2">
-          <button onClick={() => navigateMonth(-1)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"><ChevronLeft className="w-4 h-4" /></button>
-          <span className="text-sm font-semibold text-slate-700">{MONTH_NAMES[month]} {year}</span>
-          <button onClick={() => navigateMonth(1)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"><ChevronRight className="w-4 h-4" /></button>
-        </div>
-        <div className="grid grid-cols-7 gap-0">
-          {WEEKDAY_SHORT.map((l, i) => (
-            <div key={i} className="text-center text-[10px] font-semibold text-slate-400 py-1">{l}</div>
-          ))}
-          {weeks.flat().map((d, i) => {
-            const isMonth = d.getMonth() === month
-            const isT = isSameDay(d, today)
-            const isSel = isSameDay(d, currentDate)
-            const hasEv = filteredEvents.some(e => e.date === fmt(d))
-            return (
-              <button
-                key={i}
-                onClick={() => { setCurrentDate(d); if (viewMode === "month") setViewMode("day") }}
-                className={`relative w-full aspect-square flex items-center justify-center text-[11px] rounded-full transition-colors
-                  ${isT ? "bg-[#184689] text-white font-bold" : isSel ? "bg-blue-100 text-[#184689] font-bold" : isMonth ? "text-slate-700 hover:bg-slate-100" : "text-slate-300"}`}
-              >
-                {d.getDate()}
-                {hasEv && !isT && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
+  const handleMiniDayClick = useCallback((d: Date) => {
+    setCurrentDate(d)
+    setViewMode((prev) => prev === "month" ? "day" : prev)
+  }, [])
+
+  const eventCountByRoom = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const e of filteredEvents) map.set(e.space_id, (map.get(e.space_id) ?? 0) + 1)
+    return map
+  }, [filteredEvents])
 
   /* ─── Tooltip flutuante ─── */
   function EventTooltip({ ev, openBelow = false }: { ev: AgendaEvent; openBelow?: boolean }) {
@@ -558,7 +540,35 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
       <div className="w-56 shrink-0 flex flex-col gap-4">
         {/* Mini Calendar */}
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-3">
-          <MiniCalendar />
+          <div className="select-none">
+            <div className="flex items-center justify-between mb-2">
+              <button onClick={() => navigateMiniMonth(-1)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"><ChevronLeft className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold text-slate-700">{MONTH_NAMES[currentDate.getMonth()]} {currentDate.getFullYear()}</span>
+              <button onClick={() => navigateMiniMonth(1)} className="p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-slate-600"><ChevronRight className="w-4 h-4" /></button>
+            </div>
+            <div className="grid grid-cols-7 gap-0">
+              {WEEKDAY_SHORT.map((l, i) => (
+                <div key={i} className="text-center text-[10px] font-semibold text-slate-400 py-1">{l}</div>
+              ))}
+              {miniCalWeeks.flat().map((d, i) => {
+                const isMonth = d.getMonth() === currentDate.getMonth()
+                const isT = isSameDay(d, today)
+                const isSel = isSameDay(d, currentDate)
+                const hasEv = eventDatesSet.has(fmt(d))
+                return (
+                  <button
+                    key={i}
+                    onClick={() => handleMiniDayClick(d)}
+                    className={`relative w-full aspect-square flex items-center justify-center text-[11px] rounded-full transition-colors
+                      ${isT ? "bg-[#184689] text-white font-bold" : isSel ? "bg-blue-100 text-[#184689] font-bold" : isMonth ? "text-slate-700 hover:bg-slate-100" : "text-slate-300"}`}
+                  >
+                    {d.getDate()}
+                    {hasEv && !isT && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-blue-500" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
         {/* Filtro */}
@@ -581,7 +591,7 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
           <div className="flex flex-col gap-1.5">
             {agendaRooms.map((room) => {
               const c = getColor(room.id)
-              const count = filteredEvents.filter(e => e.space_id === room.id).length
+              const count = eventCountByRoom.get(room.id) ?? 0
               return (
                 <div key={room.id} className="flex items-center gap-2 group">
                   <div className="w-3 h-3 rounded" style={{ backgroundColor: c.accent }} />
@@ -642,4 +652,4 @@ export function AgendaView({ rooms, systemSettings, isSettingsLoading, onOpenBoo
       </div>
     </div>
   )
-}
+})

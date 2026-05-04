@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, memo } from "react"
 import { Plus, Edit, Ban, CheckCircle2, Loader2, ShieldCheck, Shield, Search, Mail } from "lucide-react"
 import { toast } from "sonner"
 import type { User } from "@/lib/types"
@@ -15,7 +15,7 @@ interface UsersViewProps {
   onToggleUserStatus: (id: string, activate: boolean) => Promise<void>
 }
 
-export function UsersView({
+export const UsersView = memo(function UsersView({
   users,
   isLoading,
   currentUserEmail,
@@ -260,7 +260,7 @@ export function UsersView({
       </div>
     </div>
   )
-}
+})
 
 /* ── Helpers ── */
 

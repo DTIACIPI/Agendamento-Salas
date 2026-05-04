@@ -85,6 +85,30 @@
   }
 }
 
+/* Scrollbar estilizada */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(0.75 0.03 250) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: oklch(0.82 0.02 250);
+  border-radius: 9999px;
+  transition: background 0.2s;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.65 0.06 250);
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:active {
+  background: oklch(0.50 0.10 250);
+}
+
 /* Animação do círculo de sucesso/erro */
 @keyframes circle-draw {
   0% { stroke-dashoffset: 300; }

@@ -570,136 +570,154 @@ function FormularioContent() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* Coluna da Esquerda: Resumo da Reserva */}
-        <div className="order-2 lg:order-1 lg:col-span-4 lg:sticky lg:top-24 flex flex-col gap-4">
-          <div className="bg-white p-5 rounded-xl border shadow-sm flex flex-col gap-5">
-            <h3 className="text-lg font-bold text-[#184689] border-b pb-3">Resumo da Seleção</h3>
-            
+        <div className="order-2 lg:order-1 lg:col-span-4 lg:sticky lg:top-24 lg:max-h-[calc(100vh-7rem)]">
+          <div className="bg-white rounded-xl border shadow-sm overflow-y-auto overscroll-contain scrollbar-thin lg:max-h-[calc(100vh-7rem)]">
+            <h3 className="text-lg font-bold text-[#184689] border-b px-5 py-4">Resumo da Seleção</h3>
+
             {!isHydrated ? (
-              <div className="text-sm text-muted-foreground">Carregando detalhes...</div>
+              <div className="text-sm text-muted-foreground p-5">Carregando detalhes...</div>
             ) : cartRooms.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Nenhuma sala selecionada.</div>
+              <div className="text-sm text-muted-foreground p-5">Nenhuma sala selecionada.</div>
             ) : (
-              <div className="flex flex-col gap-6">
-                {cartRooms.map(roomId => {
-                  const room = rooms.find(r => r.id === roomId)
-                  const roomBookings = cartBookings.filter(b => b.roomId === roomId)
-                  if (!room || roomBookings.length === 0) return null
+              <>
+                <div className="px-5 py-4">
+                  <div className="flex flex-col gap-6">
+                    {cartRooms.map(roomId => {
+                      const room = rooms.find(r => r.id === roomId)
+                      const roomBookings = cartBookings.filter(b => b.roomId === roomId)
+                      if (!room || roomBookings.length === 0) return null
 
-                  const roomPricing = pricingData?.detalhes.find(d => d.space_name === room.name)
-                  
-                  return (
-                    <div key={roomId} className="flex flex-col gap-3">
-                      <div className="relative w-full h-36 rounded-lg overflow-hidden border bg-gray-50">
-                        <Image 
-                          src={room.image} 
-                          alt={room.name} 
-                          fill 
-                          className="object-cover"
-                          sizes="(max-width: 768px) 100vw, 300px"
-                        />
-                      </div>
-                      <div className="flex flex-col gap-1">
-                        <span className="font-bold text-[#384050] text-base">{room.name}</span>
-                        <div className="flex flex-col gap-2 mt-2">
-                          {roomBookings.map(b => (
-                            <div key={b.id} className="flex flex-col bg-slate-50 p-2.5 rounded-md border gap-1">
-                              <span className="text-sm font-semibold text-[#384050]">
-                                {b.selectedRange.from?.toLocaleDateString("pt-BR")}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                Das {b.startTime} às {b.endTime}
-                              </span>
+                      const roomPricing = pricingData?.detalhes.find(d => d.space_name === room.name)
+
+                      return (
+                        <div key={roomId} className="flex flex-col gap-3">
+                          <div className="relative w-full h-36 rounded-lg overflow-hidden border bg-gray-50">
+                            <Image
+                              src={room.image}
+                              alt={room.name}
+                              fill
+                              className="object-cover"
+                              sizes="(max-width: 768px) 100vw, 300px"
+                            />
+                          </div>
+                          <div className="flex flex-col gap-1">
+                            <span className="font-bold text-[#384050] text-base">{room.name}</span>
+                            <div className="flex flex-col gap-2 mt-2">
+                              {roomBookings.map(b => (
+                                <div key={b.id} className="flex flex-col bg-slate-50 p-2.5 rounded-md border gap-1">
+                                  <span className="text-sm font-semibold text-[#384050]">
+                                    {b.selectedRange.from?.toLocaleDateString("pt-BR")}
+                                  </span>
+                                  <span className="text-xs text-muted-foreground">
+                                    Das {b.startTime} às {b.endTime}
+                                  </span>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+
+                            {/* Subtotal da Sala Específica */}
+                            {roomPricing ? (
+                              <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                  <span>Valor das Horas ({roomPricing.horas_cobradas}h)</span>
+                                  <span>{formatMoney(roomPricing.subtotal)}</span>
+                                </div>
+                                {roomPricing.descontos > 0 ? (
+                                  <div className="flex justify-between text-xs text-green-600 font-medium">
+                                    <span>Desconto Associado</span>
+                                    <span>-{formatMoney(roomPricing.descontos)}</span>
+                                  </div>
+                                ) : (
+                                  <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-1.5 mt-1 px-3 py-1.5 rounded-md bg-[#004b87]/10 text-[#004b87] text-[11px] font-semibold hover:bg-[#004b87]/20 transition-colors">
+                                    Associe-se e ganhe desconto
+                                  </a>
+                                )}
+                                {roomPricing.taxa_montagem > 0 && (
+                                  <div className="flex justify-between text-xs text-muted-foreground">
+                                    <span>Taxa de Montagem</span>
+                                    <span>{formatMoney(roomPricing.taxa_montagem)}</span>
+                                  </div>
+                                )}
+                                <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
+                                  <span>Total da Sala</span>
+                                  <span>{formatMoney(roomPricing.total)}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
+                                <div className="flex justify-between text-xs text-muted-foreground">
+                                  <span>Estimativa ({roomBookings.length} reserva{roomBookings.length > 1 ? 's' : ''})</span>
+                                  <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
+                                </div>
+                                <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
+                                  <span>Total da Sala</span>
+                                  <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
+                      )
+                    })}
+                  </div>
+                </div>
 
-                        {/* Subtotal da Sala Específica */}
-                        {roomPricing ? (
-                          <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Valor das Horas ({roomPricing.horas_cobradas}h)</span>
-                              <span>{formatMoney(roomPricing.subtotal)}</span>
-                            </div>
-                            {roomPricing.descontos > 0 && (
-                              <div className="flex justify-between text-xs text-green-600 font-medium">
-                                <span>Desconto Associado</span>
-                                <span>-{formatMoney(roomPricing.descontos)}</span>
-                              </div>
-                            )}
-                            {roomPricing.taxa_montagem > 0 && (
-                              <div className="flex justify-between text-xs text-muted-foreground">
-                                <span>Taxa de Montagem</span>
-                                <span>{formatMoney(roomPricing.taxa_montagem)}</span>
-                              </div>
-                            )}
-                            <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
-                              <span>Total da Sala</span>
-                              <span>{formatMoney(roomPricing.total)}</span>
-                            </div>
+                <div className="border-t-2 border-dashed px-5 py-4">
+                  {pricingData ? (
+                    <div className="flex flex-col gap-3">
+                      {pricingData.is_associado && pricingData.porcentagem_tier > 0 ? (
+                        <div className="flex items-start gap-2 bg-green-50 text-green-800 p-3 rounded-md border border-green-200">
+                          <CheckCircle2 className="size-4 mt-0.5 shrink-0" />
+                          <div className="flex flex-col text-sm">
+                            <span className="font-bold">Desconto de {pricingData.porcentagem_tier}% aplicado!</span>
+                            <span className="text-xs opacity-90">Empresa associada à ACIPI.</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#004b87] text-white text-sm font-semibold hover:bg-[#003a6b] transition-colors shadow-sm">
+                          Associe-se e ganhe até 30% de desconto
+                        </a>
+                      )}
+
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between text-sm text-muted-foreground">
+                          <span>Valor das Horas</span>
+                          <span>{formatMoney(subtotalHoras)}</span>
+                        </div>
+                        {descontoAssociado > 0 ? (
+                          <div className="flex justify-between text-sm text-green-600 font-medium">
+                            <span>Desconto Associado</span>
+                            <span>-{formatMoney(descontoAssociado)}</span>
                           </div>
                         ) : (
-                          <div className="mt-3 bg-gray-50 p-3 rounded-lg border border-gray-100 flex flex-col gap-1.5">
-                            <div className="flex justify-between text-xs text-muted-foreground">
-                              <span>Estimativa ({roomBookings.length} reserva{roomBookings.length > 1 ? 's' : ''})</span>
-                              <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
-                            </div>
-                            <div className="flex justify-between text-sm font-bold text-[#384050] border-t pt-1.5 mt-1">
-                              <span>Total da Sala</span>
-                              <span>{formatMoney(roomBookings.reduce((sum, b) => sum + (b.price || 0), 0))}</span>
-                            </div>
+                          <div className="flex justify-between items-center text-sm text-[#004b87]">
+                            <span className="font-medium">Desconto Associado</span>
+                            <a href="https://acipi.com.br/sejaassociada/" target="_blank" rel="noopener noreferrer" className="text-[11px] font-semibold underline hover:text-[#003a6b] transition-colors">
+                              Associe-se
+                            </a>
                           </div>
                         )}
+                        {appliedCoupon && valorDescontoCupom > 0 && (
+                          <div className="flex justify-between items-center text-sm text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100 font-medium">
+                            <span>Cupom ({appliedCoupon.code})</span>
+                            <span>-{formatMoney(valorDescontoCupom)}</span>
+                          </div>
+                        )}
+                        {totalTaxaMontagem > 0 && (
+                          <div className="flex justify-between text-sm text-muted-foreground">
+                            <span>Taxa de Montagem</span>
+                            <span>{formatMoney(totalTaxaMontagem)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-end border-t pt-3 mt-1">
+                          <span className="text-base font-bold text-[#384050]">Valor Final</span>
+                          <span className="text-2xl font-black text-primary leading-none">
+                            {formatMoney(valorFinalComCupom)}
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  )
-                })}
-                
-                {/* Painel Financeiro Final */}
-                {pricingData ? (
-                  <div className="border-t-2 border-dashed pt-5 mt-2 flex flex-col gap-3">
-                    {pricingData.is_associado && pricingData.porcentagem_tier > 0 && (
-                      <div className="flex items-start gap-2 bg-green-50 text-green-800 p-3 rounded-md border border-green-200">
-                        <CheckCircle2 className="size-4 mt-0.5 shrink-0" />
-                        <div className="flex flex-col text-sm">
-                          <span className="font-bold">Desconto de {pricingData.porcentagem_tier}% aplicado!</span>
-                          <span className="text-xs opacity-90">Empresa associada à ACIPI.</span>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="flex flex-col gap-2">
-                      <div className="flex justify-between text-sm text-muted-foreground">
-                        <span>Valor das Horas</span>
-                        <span>{formatMoney(subtotalHoras)}</span>
-                      </div>
-                      {descontoAssociado > 0 && (
-                        <div className="flex justify-between text-sm text-green-600 font-medium">
-                          <span>Desconto Associado</span>
-                          <span>-{formatMoney(descontoAssociado)}</span>
-                        </div>
-                      )}
-                      {appliedCoupon && valorDescontoCupom > 0 && (
-                        <div className="flex justify-between items-center text-sm text-green-700 bg-green-50 px-2.5 py-1.5 rounded-lg border border-green-100 font-medium">
-                          <span>Cupom ({appliedCoupon.code})</span>
-                          <span>-{formatMoney(valorDescontoCupom)}</span>
-                        </div>
-                      )}
-                      {totalTaxaMontagem > 0 && (
-                        <div className="flex justify-between text-sm text-muted-foreground">
-                          <span>Taxa de Montagem</span>
-                          <span>{formatMoney(totalTaxaMontagem)}</span>
-                        </div>
-                      )}
-                      <div className="flex justify-between items-end border-t pt-3 mt-1">
-                        <span className="text-base font-bold text-[#384050]">Valor Final</span>
-                        <span className="text-2xl font-black text-primary leading-none">
-                          {formatMoney(valorFinalComCupom)}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="border-t-2 border-dashed pt-5 mt-2 flex flex-col gap-3">
+                  ) : (
                     <div className="flex flex-col gap-2">
                       <div className="flex justify-between text-sm text-muted-foreground">
                         <span>Estimativa Total</span>
@@ -712,9 +730,9 @@ function FormularioContent() {
                         </span>
                       </div>
                     </div>
-                  </div>
-                )}
-              </div>
+                  )}
+                </div>
+              </>
             )}
           </div>
         </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, memo } from "react"
 import { Clock, Ticket, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import type { SystemSettings } from "@/lib/types"
@@ -13,7 +13,7 @@ interface ConfigViewProps {
   onSettingsChange?: (settings: SystemSettings) => void
 }
 
-export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange }: ConfigViewProps) {
+export const ConfigView = memo(function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange }: ConfigViewProps) {
   const canEdit = typeof onSettingsChange === "function"
   const [draft, setDraft] = useState<SystemSettings>(systemSettings)
   const [isSaving, setIsSaving] = useState(false)
@@ -217,4 +217,4 @@ export function ConfigView({ systemSettings, isSettingsLoading, onSettingsChange
       </div>
     </div>
   )
-}
+})

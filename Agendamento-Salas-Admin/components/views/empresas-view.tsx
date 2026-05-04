@@ -1,5 +1,6 @@
 "use client"
 
+import { memo } from "react"
 import { Building2, ChevronLeft, ChevronRight, Eye } from "lucide-react"
 import type { Company } from "@/lib/types"
 
@@ -19,7 +20,7 @@ function formatCnpj(raw: string): string {
   return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5")
 }
 
-export function EmpresasView({
+export const EmpresasView = memo(function EmpresasView({
   companies,
   isLoading,
   page,
@@ -142,4 +143,4 @@ export function EmpresasView({
       </div>
     </div>
   )
-}
+})

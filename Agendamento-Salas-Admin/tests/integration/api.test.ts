@@ -363,7 +363,7 @@ describe("8 — Toggle status de espaços", () => {
   it("desativa um espaço criado", async () => {
     expect(createdSpaceIds.length).toBeGreaterThan(0)
     const id = createdSpaceIds[createdSpaceIds.length - 1]
-    const res = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/${id}`, {
+    const res = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/inactive/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ is_active: 0 }),
     })
@@ -376,13 +376,13 @@ describe("8 — Toggle status de espaços", () => {
     expect(createdSpaceIds.length).toBeGreaterThan(1)
     const id = createdSpaceIds[createdSpaceIds.length - 2]
 
-    const res1 = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/${id}`, {
+    const res1 = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/inactive/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ is_active: 0 }),
     })
     expect(res1.ok).toBe(true)
 
-    const res2 = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/${id}`, {
+    const res2 = await priv(`/webhook/82c614f3-17c4-4276-b286-eb9a9b35a2f3/api/spaces/inactive/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ is_active: 1 }),
     })

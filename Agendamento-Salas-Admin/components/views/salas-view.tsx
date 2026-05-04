@@ -1,6 +1,7 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useMemo, useState, memo } from "react"
+import Image from "next/image"
 import { Plus, Edit, Power, Loader2, MapPin, Users, ImageOff, Search } from "lucide-react"
 import { toast } from "sonner"
 import type { Room } from "@/lib/types"
@@ -33,7 +34,7 @@ function getLowestTurnPrice(pricing: Room["pricing"]): number | null {
   return prices.length > 0 ? Math.min(...prices) : null
 }
 
-export function SalasView({ rooms, isLoading, isSuperAdmin, onOpenRoomModal, onToggleRoomStatus }: SalasViewProps) {
+export const SalasView = memo(function SalasView({ rooms, isLoading, isSuperAdmin, onOpenRoomModal, onToggleRoomStatus }: SalasViewProps) {
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active")
   const [confirmToggleId, setConfirmToggleId] = useState<string | null>(null)
@@ -163,10 +164,13 @@ export function SalasView({ rooms, isLoading, isSuperAdmin, onOpenRoomModal, onT
               >
                 <div className="h-40 bg-slate-200 relative group">
                   {coverImage ? (
-                    <img
+                    <Image
                       src={coverImage}
                       alt={room.name}
-                      className={`w-full h-full object-cover ${!isActive ? "grayscale" : ""}`}
+                      fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                      className={`object-cover ${!isActive ? "grayscale" : ""}`}
+                      loading="lazy"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-400">
@@ -300,4 +304,4 @@ export function SalasView({ rooms, isLoading, isSuperAdmin, onOpenRoomModal, onT
       )}
     </div>
   )
-}
+})

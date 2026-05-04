@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useMemo, memo } from "react"
 import { ChevronLeft, ChevronRight, Search, Plus } from "lucide-react"
 import { StatusBadge } from "@/components/shared/status-badge"
 import type { BookingListItem, BookingStatus } from "@/lib/types"
@@ -45,7 +45,7 @@ function formatAmount(value: number | string): string {
   return formatCurrency(n)
 }
 
-export function ReservasView({
+export const ReservasView = memo(function ReservasView({
   bookings,
   isLoading,
   onOpenDossier,
@@ -62,7 +62,7 @@ export function ReservasView({
 
   const isInternal = activeTab === "internal"
 
-  const filtered = bookings.filter((b) => {
+  const filtered = useMemo(() => bookings.filter((b) => {
     const bIsInternal = INTERNAL_TYPES.includes(b.booking_type ?? "")
     if (isInternal !== bIsInternal) return false
     if (statusFilter !== "all" && b.status !== statusFilter) return false
@@ -74,7 +74,7 @@ export function ReservasView({
       if (!matchName && !matchCompany && !matchId) return false
     }
     return true
-  })
+  }), [bookings, isInternal, statusFilter, searchQuery])
 
   const page = activeTab === "external" ? externalPage : internalPage
   const setPage = activeTab === "external" ? setExternalPage : setInternalPage
@@ -340,4 +340,4 @@ export function ReservasView({
       </div>
     </div>
   )
-}
+})
